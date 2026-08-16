@@ -1,0 +1,54 @@
+{
+  "name": "አሌልቱ POS — Offline Business System",
+  "short_name": "Aleltu POS",
+  "description": "Aleltu Business POS with Offline-First Inventory Management",
+  "start_url": "/aleltu/seller_pos.php",
+  "scope": "/aleltu/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#4361ee",
+  "lang": "am",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "/aleltu/image/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/aleltu/image/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/aleltu/image/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/aleltu/image/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "ሽያጭ (Sell)",
+      "short_name": "Sell",
+      "url": "/aleltu/seller_pos.php",
+      "icons": [{ "src": "/aleltu/image/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "ሪፖርት (Reports)",
+      "short_name": "Reports",
+      "url": "/aleltu/history.php",
+      "icons": [{ "src": "/aleltu/image/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
+

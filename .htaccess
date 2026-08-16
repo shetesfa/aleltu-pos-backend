@@ -1,0 +1,50 @@
+# .htaccess - Aleltu Security Hardened
+
+Options -Indexes
+Options -MultiViews
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # ── STEP 1: Strip .php from the browser address bar ──────────────────────
+    # If the browser requests a URL that ends in .php, redirect it to the
+    # same URL without .php (301 = permanent, browsers remember it).
+    # This is what makes the address bar always show clean URLs.
+    RewriteCond %{THE_REQUEST} \s/+(.+?)\.php[\s?] [NC]
+    RewriteRule ^ /%1 [R=301,L,NE]
+
+    # ── STEP 2: Serve real files and directories without rewriting ────────────
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # ── STEP 3: Internally rewrite clean URL → .php file ─────────────────────
+    # Handles trailing slash too (fixes the "wrong folder" redirect bug).
+    RewriteCond %{REQUEST_FILENAME}\.php -f
+    RewriteRule ^(.+?)/?$ $1.php [L,QSA]
+</IfModule>
+
+# ── HTTP Security Headers ─────────────────────────────────────────────────────
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' cdnjs.cloudflare.com cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' cdnjs.cloudflare.com fonts.googleapis.com; font-src 'self' cdnjs.cloudflare.com fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self';"
+    Header unset X-Powered-By
+</IfModule>
+
+# ── PHP Settings ──────────────────────────────────────────────────────────────
+<IfModule mod_php8.c>
+    php_value max_execution_time 120
+    php_value max_input_time 120
+    php_value memory_limit 256M
+    php_flag  display_errors Off
+    php_flag  log_errors On
+</IfModule>
+<IfModule mod_php7.c>
+    php_value max_execution_time 120
+    php_value max_input_time 120
+    php_value memory_limit 256M
+    php_flag  display_errors Off
+    php_flag  log_errors On
+</IfModule>

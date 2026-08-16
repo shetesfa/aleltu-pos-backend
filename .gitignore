@@ -1,0 +1,5 @@
+# Ignore temp & local scratch files
+/scratch/
+/aleltu_app/build/
+/aleltu_app/.dart_tool/
+*.log
