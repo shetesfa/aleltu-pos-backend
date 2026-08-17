@@ -1,140 +1,175 @@
-# 🛍️ Aleltu Multi-Branch POS & Inventory Management System
+<div align="center">
 
-[![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![MariaDB](https://img.shields.io/badge/MariaDB-10.4%2B-003545?logo=mariadb&logoColor=white)](https://mariadb.org)
-[![Offline-First](https://img.shields.io/badge/Offline--First-PWA%20%2B%20IndexedDB-10b981)](https://developer.mozilla.org)
-[![Ethiopian Calendar](https://img.shields.io/badge/Calendar-Ethiopian%20JDN%20Engine-8b5cf6)](config.php)
-[![License](https://img.shields.io/badge/License-Proprietary-red)](#license)
+  <img src="image/photo_2026-01-12_07-44-10.jpg" alt="Aleltu Logo" width="130" style="border-radius: 24px; box-shadow: 0 10px 30px rgba(67, 97, 238, 0.25); margin-bottom: 12px;" />
 
-**Aleltu POS** is a modern, full-featured, offline-first multi-branch Point of Sale (POS), Inventory Control, and Financial Reporting web application engineered specifically for Ethiopian businesses. It features seamless offline transaction queueing, real-time background sync, dynamic stock tracking, automatic Ethiopian date conversion (with leap-year Pagume 5/6 support), and role-based access control.
+  # 🛍️ ALELTU POS & INVENTORY CONTROL
+  ### *Enterprise Multi-Branch Offline-First Point of Sale & Inventory Engine*
 
----
+  <p align="center">
+    <strong>የተሟላ የሽያጭ፣ የስቶክ ቁጥጥር እና የፋይናንስ ሪፖርት ማኔጅመንት ሲስተም</strong>
+  </p>
 
-## 🌟 Key Features
+  <p align="center">
+    <a href="#-key-features"><img src="https://img.shields.io/badge/Architecture-Offline--First%20PWA-4361ee?style=for-the-badge&logo=pwa&logoColor=white" alt="Offline First" /></a>
+    <a href="#-technology-stack"><img src="https://img.shields.io/badge/PHP-8.1%2B%20Native-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP 8" /></a>
+    <a href="#-technology-stack"><img src="https://img.shields.io/badge/Database-MariaDB%20%2F%20MySQL-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB" /></a>
+    <a href="#-ethiopian-calendar-engine"><img src="https://img.shields.io/badge/Calendar-Ethiopian%20JDN%20Leap%20Engine-10b981?style=for-the-badge" alt="Ethiopian Calendar" /></a>
+    <a href="#-security-hardening"><img src="https://img.shields.io/badge/Security-RBAC%20%2B%20CSRF%20%2B%20BCrypt-f59e0b?style=for-the-badge&logo=auth0&logoColor=white" alt="Security" /></a>
+  </p>
 
-### 1. 📴 Offline-First POS Engine (PWA + IndexedDB)
-* **Zero Interruption:** Cashiers and sellers can continue selling seamlessly even during complete internet outages.
-* **Service Worker Caching:** Application shell and assets are cached locally for offline load speeds.
-* **Background Sync Engine:** Queued sales are stored in client-side IndexedDB and automatically synchronized in atomic batches to the MariaDB server once internet connectivity is restored.
-* **Conflict Resolution & Audit Trail:** Over-sale handling with server-side inventory locking and dedicated cancellation logging (`conflict_center.php`).
-
-### 2. 📅 Native Ethiopian Calendar Engine (JDN Precision)
-* **Accurate Julian Day Number (JDN) Algorithm:** Built-in exact calculation for all 13 Ethiopian months (መስከረም – ጳጉሜ).
-* **Leap Year Support:** Correctly handles ጳጉሜ 6 (Pagume 6) in Ethiopian leap years (e.g. 2019 ዓ.ም / 2027 G.C.).
-* **Bilingual Date Display:** Ethiopian calendar dates shown alongside Gregorian timestamps across POS receipts, Excel sheets, and audit reports.
-
-### 3. 👥 Multi-Branch & Role-Based Access Control (RBAC)
-* **Super Admin:** Multi-branch oversight, master financial analytics, user and branch management.
-* **Branch Admin:** Branch-specific stock management, cashier monitoring, daily cash settlement, and edit history.
-* **Manager & Cashier:** Cash registration, daily withdrawal management, and transaction audits.
-* **Seller / POS Operator:** Fast touch POS interface, receipt generation, stock reception, and offline selling.
-* **6-Digit User PINs:** Secure one-click 6-digit random PIN generation with automatic `bcrypt` hashing.
-
-### 4. 📦 Stock & Inventory Control
-* **Dynamic Stock Inflow Tracking (`admin_view_stock.php`):** Tracks batch receipts, source suppliers, unit costs, and current stock pools.
-* **Product-Level Offline Permissions (`offline_controller.php`):** Admins can toggle whether specific items are eligible for offline sales and specify max quantity limits.
-* **Edit History Audit (`edit_history.php`):** Complete change logs for product name or price alterations with previous vs new values and editor identity.
-
-### 5. 📊 Financial Reporting & Excel Exports
-* **One-Click Excel Reports:** Styled XLSX and UTF-8 BOM CSV exports for sales, expenses, withdrawals, and stock movements.
-* **Real-Time Dashboards:** Daily, weekly, monthly profit metrics, top-selling items, payment method breakdowns (Cash, Telebirr, CBE, Bank).
+</div>
 
 ---
 
-## 🏗️ Technology Stack
+## 📖 Overview
 
-| Layer | Technologies Used |
-|---|---|
-| **Backend** | PHP 8.x (Native, Prepared Statements, Strict Modes) |
-| **Database** | MySQL / MariaDB 10.4+ (`utf8mb4_unicode_ci`) |
-| **Frontend** | HTML5, Modern Vanilla CSS3, JavaScript (ES6+) |
-| **Offline Storage** | Service Workers, Cache API, IndexedDB |
-| **Spreadsheet Engine** | PhpSpreadsheet (`\PhpOffice\PhpSpreadsheet`) & UTF-8 BOM CSV |
-| **Icons & Fonts** | FontAwesome 6, Google Fonts (Noto Sans Ethiopic, Inter) |
+**Aleltu POS** is an enterprise-grade, high-performance web and PWA Point of Sale ecosystem designed specifically for multi-branch retail and wholesale operations. Engineered with an **Offline-First** core, it guarantees 100% uninterrupted cashier workflow during network dropouts, synchronizing sales automatically in atomic batches once online.
+
+It features native support for the **Ethiopian Calendar (JDN engine)**, dynamic supplier and stock inflow tracking, 6-digit cryptographic PIN authentication, and styled Excel exports with UTF-8 BOM encoding for clean Amharic spreadsheets.
 
 ---
 
-## 🚀 Installation & Local Setup
+## ✨ Key Features & Capabilities
 
-### Prerequisites
-* **XAMPP / WAMP / LAMP** with PHP 8.0+ and MariaDB/MySQL.
-* **Composer** (optional, for PhpSpreadsheet dependencies).
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            ALELTU POS ECOSYSTEM                             │
+├──────────────────────┬──────────────────────┬───────────────────────────────┤
+│  📴 Offline Engine    │  📅 Ethiopian Math   │  📦 Dynamic Inventory         │
+│  • PWA Service Worker│  • 13 Months JDN     │  • Real-time stock pools      │
+│  • IndexedDB Queue   │  • Leap Pagume 5 & 6 │  • Dynamic supplier tracking  │
+│  • Auto Batch Sync   │  • Bilingual receipts│  • Product-level offline caps │
+├──────────────────────┼──────────────────────┼───────────────────────────────┤
+│  👥 Multi-Branch RBAC│  📊 Smart Analytics  │  🔐 Security Hardened         │
+│  • Super Admin Hub   │  • One-click Excel   │  • Prepared Statements        │
+│  • Branch Admins     │  • Daily Settlements │  • 6-digit PIN Bcrypt Hash    │
+│  • Cashiers & Sellers│  • Profit Analytics  │  • Strict CSRF Validation     │
+└──────────────────────┴──────────────────────┴───────────────────────────────┘
+```
 
-### Step-by-Step Setup
+### 1. 📴 Offline-First Transaction Engine
+* **Zero Downtime:** Cashiers continue making sales, generating digital receipts, and calculating change offline.
+* **Client Storage (IndexedDB):** Transactions, item inventories, and local configurations are stored safely in browser storage.
+* **Intelligent Background Sync:** Detects connection recovery and sends batch payloads via `/api/sync/batch.php` with server row-locking to eliminate phantom stock duplication.
+* **Audit Center (`conflict_center.php`):** Tracks and audits seller-cancelled offline sales and synchronizations.
 
-1. **Clone the Repository:**
+### 2. 📅 Precision Ethiopian Calendar Engine
+* **Pure JDN Calculation:** Converts Gregorian timestamps to precise Ethiopian dates without third-party API dependencies.
+* **Leap Year Support:** Fully calculates **ጳጉሜ 6** in leap cycles (e.g. 2019 ዓ.ም / 2027 G.C.).
+* **Bilingual Display:** Receipts, daily settlement views, and report tables display both Ethiopian and Gregorian dates seamlessly.
+
+### 3. 📦 Stock & Multi-Branch Management
+* **Stock Inflow Tracker (`admin_view_stock.php`):** Detailed breakdown of stock additions (የስቶክ ገቢ ዙር ብዛት), batch units, and supplier sources.
+* **Offline Permissions (`offline_controller.php`):** Toggle offline selling eligibility and max quantity ceilings per individual product.
+* **Change Log Trail (`edit_history.php`):** Audit trail of price changes, product renaming, and modifications with user timestamps.
+
+### 4. 👥 Access Hierarchy & Role Permissions
+
+| Role | Access Scope | Key Capabilities |
+|---|---|---|
+| **👑 Super Admin** | All Branches | Full system control, branch provisioning, master analytics, user management. |
+| **🛡️ Branch Admin** | Specific Branch | Local stock management, cashier monitoring, offline rule configuration. |
+| **💼 Manager / Cashier** | Specific Branch | Cash settlement, daily expense/withdrawal approvals, transaction reports. |
+| **🛒 Seller / POS Operator** | POS Terminal | Touch POS interface, receipt generation, stock intake confirmation. |
+
+---
+
+## 🛠️ Technology Stack
+
+* **Core Backend:** PHP 8.1+ (Native, Strict Typing, Prepared Statements, Zero Bloat)
+* **Database Engine:** MySQL / MariaDB 10.4+ (`utf8mb4_unicode_ci`)
+* **Client Architecture:** Progressive Web App (PWA), Service Worker, IndexedDB, Vanilla ES6+
+* **Report Generators:** PhpSpreadsheet (`\PhpOffice\PhpSpreadsheet`) & UTF-8 BOM CSV
+* **UI & Typography:** Modern Vanilla CSS3 (Mobile-First Responsive Grid), Google Fonts (*Noto Sans Ethiopic*, *Inter*), FontAwesome 6
+
+---
+
+## 🚀 Quick Start & Installation
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/shetesfa/aleltu-pos-backend.git
+```
+
+### 2. Directory Placement
+Copy or move the repository files to your local server document root:
+* **XAMPP (Windows):** `C:\xampp\htdocs\aleltu`
+* **Linux (Apache/Nginx):** `/var/www/html/aleltu`
+
+### 3. Database Initialization
+1. Open phpMyAdmin (`http://localhost/phpmyadmin`) or MySQL CLI.
+2. Create a database named `aleltu` with character set `utf8mb4` and collation `utf8mb4_unicode_ci`:
+   ```sql
+   CREATE DATABASE aleltu CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   ```
+3. Import the clean production schema file:
    ```bash
-   git clone https://github.com/shetesfa/aleltu-pos-backend.git
+   mysql -u root -p aleltu < "aleltu now real database.sql"
    ```
 
-2. **Move to Web Directory:**
-   Place the project folder inside your web server directory (e.g. `C:\xampp\htdocs\aleltu`).
+### 4. Configure Connection (`config.php`)
+Open `config.php` and verify your local database credentials:
+```php
+$host = 'localhost';
+$username = 'root';
+$password = '';
+$database = 'aleltu';
+```
 
-3. **Database Configuration:**
-   * Open phpMyAdmin (`http://localhost/phpmyadmin`).
-   * Create a new database named `aleltu` with collation `utf8mb4_unicode_ci`.
-   * Import the database backup file `aleltu now real database.sql`.
-
-4. **Verify Database Connection (`config.php`):**
-   ```php
-   $host = 'localhost';
-   $username = 'root';
-   $password = '';
-   $database = 'aleltu';
-   ```
-
-5. **Launch Application:**
-   * Open your web browser and navigate to `http://localhost/aleltu`.
-   * Log in with your Super Admin or Admin credentials.
+### 5. Launch & Login
+Open your browser and navigate to:
+```
+http://localhost/aleltu
+```
 
 ---
 
-## 📁 Project Directory Structure
+## 📁 System Architecture & Directory Map
 
 ```
 aleltu/
-├── api/                        # REST API endpoints
-│   ├── sync/batch.php          # Offline IndexedDB transaction sync processor
-│   └── reports/alerts.php      # Low stock and system alert handler
+├── api/
+│   ├── sync/batch.php          # Atomic offline transaction batch synchronizer
+│   └── reports/alerts.php      # Real-time low-stock alert dispatcher
 ├── assets/
-│   ├── css/                    # Custom stylesheets
-│   └── js/                     # Offline engine, sync manager, device identification
-│       ├── sync-engine.js      # Background batch sync coordinator
-│       ├── indexeddb-manager.js# Local IndexedDB schema and operations
-│       ├── device-manager.js   # Unique device UUID manager
-│       └── offline-ux.js       # Offline status pill and user notifications
-├── image/                      # System logos and receipt branding
-├── config.php                  # Database connection, CSRF tokens, Ethiopian JDN calendar
-├── index.php                   # Authentication login portal with auto-upgrade bcrypt
-├── seller_pos.php              # Cashier POS workspace with offline capability
-├── admin_dashboard.php         # Branch administrator dashboard
-├── admin_view_stock.php        # Stock inventory and dynamic supplier tracking
-├── super_admin.php             # Master multi-branch administration center
-├── manage_users.php            # User management and instant 6-digit PIN generator
-├── register_user.php           # User creation form with role selector
-├── change_password.php         # Secure PIN and password update screen
-├── offline_controller.php      # Product offline permissions and quantity limits
-├── conflict_center.php         # Cancelled offline sales and sync conflict logs
-├── edit_history.php            # Product audit trail and price diff viewer
-├── export_report_excel.php     # Excel report generation engine
-├── service-worker.js           # PWA service worker for asset caching and offline routing
-└── README.md                   # Project documentation
+│   ├── css/                    # Modular responsive stylesheets
+│   └── js/
+│       ├── sync-engine.js      # Background IndexedDB sync coordinator
+│       ├── indexeddb-manager.js# Local IndexedDB schema handler
+│       ├── device-manager.js   # Unique device UUID generator
+│       └── offline-ux.js       # Dynamic online/offline indicator pill
+├── image/                      # High-resolution logos & PWA icons
+├── config.php                  # Database connection, CSRF tokens, Ethiopian JDN math
+├── index.php                   # Secure authentication portal with auto-upgrade bcrypt
+├── seller_pos.php              # Modern cashier POS terminal with offline mode
+├── admin_dashboard.php         # Branch administrator operational hub
+├── admin_view_stock.php        # Real-time stock inventory & dynamic supplier logs
+├── super_admin.php             # Master multi-branch enterprise administration
+├── manage_users.php            # User access management & 6-digit PIN generator
+├── register_user.php           # User creation form with instant PIN copy
+├── change_password.php         # Password & PIN update portal
+├── offline_controller.php      # Granular product offline rules & quantity limits
+├── conflict_center.php         # Cancelled offline sales & conflict resolution hub
+├── edit_history.php            # Product audit trail and price diff log
+├── export_report_excel.php     # Styled financial spreadsheet export engine
+├── service-worker.js           # PWA caching and offline asset delivery
+└── README.md                   # System documentation
 ```
 
 ---
 
-## 🔒 Security Hardening Highlights
+## 🔒 Security & Quality Assurance
 
-* **Prepared Statements:** 100% of parameterized SQL operations prevent SQL Injection vulnerabilities.
-* **CSRF Protection:** Form tokens with strict session validation on all critical state-changing actions.
-* **Password Hashing:** Standard `PASSWORD_DEFAULT` (`bcrypt`) password storage with legacy migration support.
-* **Role Verification:** Strict RBAC middleware prevents unauthorized access to admin workflows.
-* **Database Charset:** Enforced `utf8mb4` character set to guarantee Amharic data integrity.
+* 🛡️ **SQL Injection Immunity:** Every single database interaction is parameterized using PDO or MySQLi Prepared Statements.
+* 🔑 **Cryptographic Password Storage:** Uses `password_hash()` (`bcrypt`) with silent automatic upgrades for legacy credentials.
+* 🛡️ **Cross-Site Request Forgery (CSRF):** Non-idempotent HTTP actions strictly validate session cryptographic tokens.
+* 🌐 **UTF-8 Multi-Byte Reliability:** Full Unicode `utf8mb4` support across PHP and MariaDB ensures zero character corruption for Amharic Fidel text.
 
 ---
 
-## 📄 License & Confidentiality
+## 📄 License & Intellectual Property
 
-This project is proprietary and confidential. Unauthorized copying, distribution, modification, or deployment without explicit authorization from the copyright holder is strictly prohibited.
+This software and its source code are **Proprietary & Confidential**.  
+Unauthorized reproduction, distribution, reverse engineering, or commercial deployment without explicit written permission from the copyright owner is strictly prohibited.
 
-© 2026 **Aleltu POS**. All rights reserved.
+© 2026 **Aleltu POS System**. All rights reserved.
