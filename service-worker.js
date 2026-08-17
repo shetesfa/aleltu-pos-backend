@@ -7,8 +7,8 @@
 //   • API/POST       → Network-Only (never cached; queued by OfflineJsBridge)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_VERSION  = 'aleltu-pos-v6';
-const DYNAMIC_CACHE  = 'aleltu-dynamic-v6';
+const CACHE_VERSION  = 'aleltu-pos-v12';
+const DYNAMIC_CACHE  = 'aleltu-dynamic-v12';
 
 // PHP pages to pre-cache on install
 const PHP_PAGES = [

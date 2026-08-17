@@ -27,6 +27,7 @@ set_time_limit(120);
 ini_set('max_execution_time', 120);
 mysqli_set_charset($conn, "utf8mb4");
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 $user_id      = $_SESSION['user_id'] ?? 0;
@@ -38,7 +39,9 @@ if ($user_id == 0) {
     exit();
 }
 
-if ($_SERVER['REQUEST_METHOD'] != 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
     echo json_encode(['success' => false, 'error' => 'Invalid request method']);
     exit();
 }
@@ -48,6 +51,7 @@ $payment_method = trim($_POST['payment_method'] ?? 'cash');
 $items_json     = $_POST['items'] ?? '[]';
 $items          = json_decode($items_json, true);
 $branch_id      = resolveWriteBranchId($conn, intval($_POST['branch_id'] ?? 0));
+$sale_uuid      = trim($_POST['sale_uuid'] ?? '');
 
 if (!validateCsrfToken($_POST['csrf_token'] ?? null)) {
     http_response_code(403);
@@ -58,6 +62,28 @@ if (!validateCsrfToken($_POST['csrf_token'] ?? null)) {
 if (empty($items) || !is_array($items) || $branch_id <= 0) {
     echo json_encode(['success' => false, 'error' => 'Invalid transaction data']);
     exit();
+}
+
+// A browser can lose the response after MySQL has committed. Reusing this
+// client-generated UUID makes a repeat POST safe and lets an offline retry be
+// recognised by api/sync/batch.php as already processed.
+if ($sale_uuid !== '') {
+    $existing_stmt = mysqli_prepare($conn,
+        "SELECT id, transaction_date FROM transactions WHERE sale_uuid = ? LIMIT 1");
+    mysqli_stmt_bind_param($existing_stmt, 's', $sale_uuid);
+    mysqli_stmt_execute($existing_stmt);
+    $existing = mysqli_fetch_assoc(mysqli_stmt_get_result($existing_stmt));
+    mysqli_stmt_close($existing_stmt);
+    if ($existing) {
+        echo json_encode([
+            'success' => true,
+            'transaction_id' => (int)$existing['id'],
+            'message' => 'Transaction already saved',
+            'ethiopian_date' => $existing['transaction_date'],
+            'already_processed' => true
+        ]);
+        exit();
+    }
 }
 
 mysqli_begin_transaction($conn);
@@ -141,10 +167,11 @@ try {
     // ---- PASS 2: everything validated — now actually save the sale.
     $ins_tx = mysqli_prepare($conn,
         "INSERT INTO transactions
-         (seller_id, seller_name, total_amount, paid_amount, change_amount, payment_method, transaction_date, branch_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-    mysqli_stmt_bind_param($ins_tx, "isdddssi",
-        $user_id, $seller_name, $total, $paid, $change, $payment_method, $transaction_date, $branch_id);
+         (sale_uuid, seller_id, seller_name, total_amount, paid_amount, change_amount, payment_method, transaction_date, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $sale_uuid_or_null = $sale_uuid !== '' ? $sale_uuid : null;
+    mysqli_stmt_bind_param($ins_tx, "sisdddssi",
+        $sale_uuid_or_null, $user_id, $seller_name, $total, $paid, $change, $payment_method, $transaction_date, $branch_id);
     mysqli_stmt_execute($ins_tx);
     mysqli_stmt_close($ins_tx);
     $transaction_id = mysqli_insert_id($conn);

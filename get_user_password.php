@@ -92,10 +92,8 @@ if (!$has_permission) {
     exit();
 }
 
-// Reset to '123' — same default used for brand-new users in register_user.php.
-// password_changed is set to 0 so the user is prompted to set their own
-// password the next time they log in (same as a new registration).
-$new_plain_password = bin2hex(random_bytes(8));
+// Generate clean 6-digit numeric PIN for password reset
+$new_plain_password = (string)random_int(100000, 999999);
 $new_password_hash = password_hash($new_plain_password, PASSWORD_DEFAULT);
 
 // UPDATE — prepared statement

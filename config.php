@@ -1,15 +1,38 @@
 <?php
 
+$is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+    || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
         'lifetime' => 0,
         'path'     => '/',
-        'secure'   => true,    // HTTPS is live — only send cookie over TLS
-        'httponly' => true,    // JS cannot read the session cookie
-        'samesite' => 'Strict',// blocks cross-site request forgery
+        'secure'   => $is_https,    // true only on HTTPS, false on local HTTP development
+        'httponly' => true,         // JS cannot read the session cookie
+        'samesite' => 'Lax',        // Lax allows redirect cookies to work properly
     ]);
     session_start();
 }
+
+// ── Inactivity Auto-Logout: 30 minutes (1800 seconds) ───────────────────
+if (isset($_SESSION['user_id'])) {
+    $inactive_timeout = 1800; // 30 minutes
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > $inactive_timeout)) {
+        session_unset();
+        session_destroy();
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+            header('Content-Type: application/json');
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => 'Session expired due to inactivity. Please log in again.']);
+            exit();
+        }
+        header("Location: index.php?expired=1");
+        exit();
+    }
+    $_SESSION['last_activity'] = time();
+}
+// ─────────────────────────────────────────────────────────────────────────
 
 
 $host     = getenv('DB_HOST') ?: '127.0.0.1';
@@ -484,5 +507,47 @@ function downloadExcelSpreadsheet($spreadsheet, $filename) {
     $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
     $writer->save('php://output');
     exit();
+}
+
+/**
+ * Mathematically exact Ethiopian Calendar Converter
+ * Accurately supports Leap Years (ዘመነ ዮሐንስ - ጳጉሜ 6 ቀናት) and New Year roll-over.
+ */
+function getEthiopianDate($gregorianDate = null) {
+    $timestamp = $gregorianDate ? strtotime($gregorianDate) : time();
+    if (!$timestamp) $timestamp = time();
+    
+    $gy = (int)date('Y', $timestamp);
+    $gm = (int)date('m', $timestamp);
+    $gd = (int)date('d', $timestamp);
+    
+    $a = (int)((14 - $gm) / 12);
+    $y = $gy + 4800 - $a;
+    $m = $gm + 12 * $a - 3;
+    $jdn = $gd + (int)((153 * $m + 2) / 5) + 365 * $y + (int)($y / 4) - (int)($y / 100) + (int)($y / 400) - 32045;
+    
+    $eth_epoch = 1723856;
+    $r = ($jdn - $eth_epoch) % 1461;
+    $n = ($r % 365) + 365 * (int)($r / 1460);
+    
+    $eth_year = 4 * (int)(($jdn - $eth_epoch) / 1461) + (int)($r / 365) - (int)($r / 1460);
+    $eth_month = (int)($n / 30) + 1;
+    $eth_day = ($n % 30) + 1;
+    if ($eth_month > 13) $eth_month = 13;
+    
+    $months = [
+        1 => 'መስከረም', 2 => 'ጥቅምት', 3 => 'ኅዳር', 4 => 'ታኅሣሥ',
+        5 => 'ጥር', 6 => 'የካቲት', 7 => 'መጋቢት', 8 => 'ሚያዝያ',
+        9 => 'ግንቦት', 10 => 'ሰኔ', 11 => 'ሐምሌ', 12 => 'ነሐሴ', 13 => 'ጳጉሜ'
+    ];
+    
+    return [
+        'day' => $eth_day,
+        'month' => $eth_month,
+        'month_name' => $months[$eth_month],
+        'year' => $eth_year,
+        'formatted' => "$eth_day {$months[$eth_month]} $eth_year",
+        'short' => sprintf("%04d-%02d-%02d", $eth_year, $eth_month, $eth_day)
+    ];
 }
 ?>

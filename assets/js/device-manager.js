@@ -94,7 +94,7 @@ class DeviceManager {
                 branch_id: branchId,
                 app_version: '1.0.0'
             };
-            const response = await fetch('api/devices/register.php', {
+            const response = await fetch('api/devices/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

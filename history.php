@@ -753,7 +753,7 @@ if ($is_ajax) {
             </div>
             <form method="GET" action="">
                 <select name="branch_id" onchange="this.form.submit()">
-                    <option value="">-- ቅርንጫፍ ምረጥ --</option>
+                    <option value="">-- ቅርንጫፍ ይምረጡ --</option>
                     <?php
                     $all_branches = getAllBranches($conn);
                     foreach ($all_branches as $b):

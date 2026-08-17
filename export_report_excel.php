@@ -84,7 +84,7 @@ function setupReportTable($sheet, $nextRow, $headers, $widths) {
 }
 
 /** Writes a centered "no data" message spanning all columns. */
-function noDataRow($sheet, $row, $colCount, $text = 'ምንም ውሂብ አልተገኘም') {
+function noDataRow($sheet, $row, $colCount, $text = 'ምንም data አልተገኘም') {
     $sheet->mergeCells([1, $row, $colCount, $row]);
     $sheet->setCellValue([1, $row], $text);
     $sheet->getStyle([1, $row])->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);

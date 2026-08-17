@@ -573,7 +573,7 @@ if($transactions_table_exists) {
     <div class="sidebar">
         <div class="sidebar-header">
             <h1><i class="fas fa-crown"></i><span>Super Admin</span></h1>
-            <div class="badge">የሁሉም ተቆጣጣሪ</div>
+            <div class="badge">ሱፐር አድሚን</div>
         </div>
 
         <?php if($_SESSION['role'] == 'super_admin' && !empty($all_branches)): ?>
@@ -618,14 +618,14 @@ if($transactions_table_exists) {
             <div class="header-title">
                 <h1>
                     <i class="fas fa-chalkboard-user"></i> 
-                    የሁሉም ተቆጣጣሪ የፊት ገጽ 
+                    የሱፐር አድሚን ዋና ዳሽቦርድ
                     <?php if($current_branch_id !== 'all' && $current_branch_id > 0): ?>
                         <span class="branch-badge"><i class="fas fa-store"></i> <?php echo htmlspecialchars($current_branch_name); ?></span>
                     <?php elseif($current_branch_id === 'all'): ?>
                         <span class="branch-badge" style="background:#10b981;"><i class="fas fa-globe"></i> All Branches</span>
                     <?php endif; ?>
                 </h1>
-                <p><i class="fas fa-chart-line"></i> የፊት ገጽ እና መቆጣጠሪያ | አጠቃላይ ሪፖርት</p>
+                <p><i class="fas fa-chart-line"></i> አጠቃላይ የቅርንጫፎች ሪፖርት እና መቆጣጠሪያ</p>
             </div>
         </div>
 

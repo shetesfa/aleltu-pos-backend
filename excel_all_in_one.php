@@ -817,10 +817,10 @@ foreach ($data as $d) {
     
     <div class="toolbar">
         <button class="btn btn-success" onclick="saveWorkbook()"><i class="fas fa-save"></i> አስቀምጥ</button>
-        <button class="btn" onclick="calculateCurrentPageOnly()"><i class="fas fa-calculator"></i> አስላ</button>
+        <button class="btn" onclick="calculateCurrentPageOnly()"><i class="fas fa-calculator"></i> Calculate</button>
         <button class="btn" onclick="exportToExcel()"><i class="fas fa-file-excel"></i> Excel</button>
         <button class="btn" onclick="window.print()"><i class="fas fa-print"></i> አትም</button>
-        <button class="btn btn-danger" onclick="clearAllData()"><i class="fas fa-trash"></i> አጽዳ</button>
+        <button class="btn btn-danger" onclick="clearAllData()"><i class="fas fa-trash"></i> Clear</button>
         
         <?php if ($user_role == 'super_admin' && !empty($branches)): ?>
         <select class="branch-selector" onchange="changeBranch(this.value)">
@@ -836,7 +836,7 @@ foreach ($data as $d) {
     
     <div class="formula-bar">
         <div class="cell-address" id="cellAddress">A1</div>
-        <input type="text" class="formula-input" id="formulaInput" placeholder="= ቀመር ይፃፉ">
+        <input type="text" class="formula-input" id="formulaInput" placeholder="= Enter formula">
         <button class="btn" onclick="applyFormula()">ተግብር</button>
     </div>
     
@@ -980,7 +980,7 @@ foreach ($data as $d) {
         }
         
         function saveWorkbook() {
-            document.getElementById('status').textContent = 'በማስቀመጥ ላይ...';
+            document.getElementById('status').textContent = 'Saving...';
             const inputs = document.querySelectorAll('.cell-input:not([readonly])');
             let saved = 0;
             
@@ -1105,7 +1105,7 @@ foreach ($data as $d) {
         <?php endif; ?>
         
         function clearAllData() {
-            if (!confirm('እርግጠኛ ነዎት? ሁሉንም ውሂብ ይሰረዛል!')) return;
+            if (!confirm('እርግጠኛ ነዎት? ሁሉም data ይሰረዛል!')) return;
             
             const formData = new FormData();
             formData.append('action', 'clear_all');
@@ -1152,7 +1152,7 @@ foreach ($data as $d) {
             link.download = `excel_branch_<?php echo $branch_id; ?>_${new Date().toISOString().slice(0,10)}.xlsx`;
             link.click();
             URL.revokeObjectURL(link.href);
-            showToast('Excel ፋይል ወርዷል');
+            showToast('Excel File Downloaded');
         }
         
         function goToPage(page) {

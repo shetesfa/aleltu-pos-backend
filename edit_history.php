@@ -43,47 +43,13 @@ if (!$branch_column_exists) {
 
 // ========== ETHIOPIAN DATE FUNCTION (for Ethiopian calendar display) ==========
 function gregorian_to_ethiopian($gregorian_date) {
-    // Ethiopian month names
-    $ethiopian_months = [
-        1 => "መስከረም", 2 => "ጥቅምት", 3 => "ህዳር", 4 => "ታህሳስ", 
-        5 => "ጥር", 6 => "የካቲት", 7 => "መጋቢት", 8 => "ሚያዝያ", 
-        9 => "ግንቦት", 10 => "ሰኔ", 11 => "ሐምሌ", 12 => "ነሐሴ", 13 => "ጳጉሜ"
-    ];
-    
-    $timestamp = strtotime($gregorian_date);
-    $greg_year = (int)date('Y', $timestamp);
-    $greg_month = (int)date('n', $timestamp);
-    $greg_day = (int)date('j', $timestamp);
-    
-    // Ethiopian year calculation
-    // Ethiopian New Year starts on September 11
-    $ethiopian_year = $greg_year - 8;
-    
-    // If date is before September 11, subtract one more year
-    if ($greg_month < 9 || ($greg_month == 9 && $greg_day < 11)) {
-        $ethiopian_year = $greg_year - 8;
-    }
-    
-    // Calculate days since Ethiopian New Year (September 11)
-    $new_year = mktime(0, 0, 0, 9, 11, $greg_year);
-    if ($timestamp < $new_year) {
-        $new_year = mktime(0, 0, 0, 9, 11, $greg_year - 1);
-    }
-    
-    $days_since_new_year = floor(($timestamp - $new_year) / (60 * 60 * 24)) + 1;
-    
-    // Ethiopian month (each month has 30 days)
-    $ethiopian_month = ceil($days_since_new_year / 30);
-    if ($ethiopian_month > 13) $ethiopian_month = 13;
-    
-    $ethiopian_day = $days_since_new_year - (($ethiopian_month - 1) * 30);
-    
+    $eth = getEthiopianDate($gregorian_date);
     return [
-        'year' => $ethiopian_year,
-        'month' => $ethiopian_month,
-        'month_name' => $ethiopian_months[$ethiopian_month],
-        'day' => (int)$ethiopian_day,
-        'full_date' => $ethiopian_year . ' ' . $ethiopian_months[$ethiopian_month] . ' ' . (int)$ethiopian_day
+        'year' => $eth['year'],
+        'month' => $eth['month'],
+        'month_name' => $eth['month_name'],
+        'day' => $eth['day'],
+        'full_date' => $eth['formatted']
     ];
 }
 

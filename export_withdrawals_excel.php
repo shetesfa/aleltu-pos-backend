@@ -5,12 +5,16 @@ require_once 'config.php';
 // Set timezone
 date_default_timezone_set('Africa/Addis_Ababa');
 
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['admin', 'super_admin', 'manager', 'cashier'])) {
+    die("Access denied.");
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'export_excel') {
 
-    $start_date = $_POST['start_date'];
-    $end_date = $_POST['end_date'];
-    $branch_id = intval($_POST['branch_id']);
-    $branch_name = $_POST['branch_name'];
+    $start_date = mysqli_real_escape_string($conn, $_POST['start_date'] ?? date('Y-m-d'));
+    $end_date = mysqli_real_escape_string($conn, $_POST['end_date'] ?? date('Y-m-d'));
+    $branch_id = intval($_POST['branch_id'] ?? 0);
+    $branch_name = $_POST['branch_name'] ?? 'Branch';
 
     // Get withdrawals for the date range
     $query = "SELECT dw.*, u.username as user_username 

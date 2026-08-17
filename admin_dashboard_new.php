@@ -3,95 +3,17 @@ session_start();
 require_once 'config.php';
 date_default_timezone_set('Africa/Addis_Ababa');
 
-// Check database connection
-if (!isset($conn) || !$conn) {
-    die("Database connection failed. Please check config.php");
-}
-
-// Set charset for Amharic
-if (!mysqli_set_charset($conn, "utf8mb4")) {
-    error_log("Failed to set charset: " . mysqli_error($conn));
-}
-
-// ========== ETHIOPIAN DATE FUNCTION (ACCURATE) ==========
+// Exact Ethiopian date with leap year (Pagume 6) support
 function get_ethiopian_date_from_gregorian($gregorianDate) {
     if (empty($gregorianDate)) return '';
-    
     try {
-        $timestamp = strtotime($gregorianDate);
-        if (!$timestamp) return '';
-        
-        $greg_year = (int)date('Y', $timestamp);
-        $greg_month = (int)date('m', $timestamp);
-        $greg_day = (int)date('d', $timestamp);
-        
-        $ethiopian_months = [
-            1 => ['start' => '09-11', 'name' => 'መስከረም'],
-            2 => ['start' => '10-11', 'name' => 'ጥቅምት'],
-            3 => ['start' => '11-10', 'name' => 'ኅዳር'],
-            4 => ['start' => '12-10', 'name' => 'ታኅሣሥ'],
-            5 => ['start' => '01-09', 'name' => 'ጥር'],
-            6 => ['start' => '02-08', 'name' => 'የካቲት'],
-            7 => ['start' => '03-10', 'name' => 'መጋቢት'],
-            8 => ['start' => '04-09', 'name' => 'ሚያዝያ'],
-            9 => ['start' => '05-09', 'name' => 'ግንቦት'],
-            10 => ['start' => '06-08', 'name' => 'ሰኔ'],
-            11 => ['start' => '07-08', 'name' => 'ሐምሌ'],
-            12 => ['start' => '08-07', 'name' => 'ነሐሴ'],
-            13 => ['start' => '09-06', 'name' => 'ጳጉሜ']
-        ];
-        
-        // Calculate Ethiopian year
-        $ethiopian_year = $greg_year - 8;
-        if ($greg_month >= 9 || ($greg_month == 9 && $greg_day >= 11)) {
-            $ethiopian_year++;
-        }
-        
-        $current_date = $greg_month . '-' . $greg_day;
-        $eth_month = 1;
-        $eth_day = 1;
-        
-        for ($i = 1; $i <= 13; $i++) {
-            $month_start = $ethiopian_months[$i]['start'];
-            if ($current_date >= $month_start) {
-                if ($i == 13) {
-                    $next_year_first_month = $ethiopian_months[1]['start'];
-                    if ($current_date < $next_year_first_month) {
-                        $eth_month = $i;
-                        list($next_month, $next_day) = explode('-', $next_year_first_month);
-                        $greg_next_date = strtotime($greg_year . '-' . $next_month . '-' . $next_day);
-                        $greg_current = strtotime($greg_year . '-' . $greg_month . '-' . $greg_day);
-                        $eth_day = (int)(($greg_next_date - $greg_current) / (60 * 60 * 24));
-                        break;
-                    }
-                } else {
-                    $next_month_start = $ethiopian_months[$i + 1]['start'];
-                    if ($current_date < $next_month_start) {
-                        $eth_month = $i;
-                        list($start_month, $start_day) = explode('-', $month_start);
-                        $greg_start = strtotime($greg_year . '-' . $start_month . '-' . $start_day);
-                        $greg_current = strtotime($greg_year . '-' . $greg_month . '-' . $greg_day);
-                        $eth_day = (int)(($greg_current - $greg_start) / (60 * 60 * 24)) + 1;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // If month not found, default to 1
-        if ($eth_month == 0) $eth_month = 1;
-        if ($eth_day == 0) $eth_day = 1;
-        
-        $monthName = $ethiopian_months[$eth_month]['name'] ?? '';
-        
-        return $eth_day . ' ' . $monthName . ' ' . $ethiopian_year;
+        $res = getEthiopianDate($gregorianDate);
+        return $res['formatted'];
     } catch (Exception $e) {
-        error_log("Error in Ethiopian date function: " . $e->getMessage());
         return date('Y-m-d', strtotime($gregorianDate));
     }
 }
 
-// ========== TIME FORMATTING FUNCTIONS - GREGORIAN 12-HOUR ==========
 function formatTimeGregorian12Hour($datetime) {
     try {
         if (empty($datetime)) return '';
@@ -178,7 +100,7 @@ $period_options = [
     '6months' => ['days' => 180, 'text' => 'ባለፉት 6 ወራት'],
     '9months' => ['days' => 270, 'text' => 'ባለፉት 9 ወራት'],
     '1year' => ['days' => 365, 'text' => 'ባለፉት 1 አመት'],
-    'custom' => ['days' => 0, 'text' => 'ብጁ ቀን']
+    'custom' => ['days' => 0, 'text' => 'Custom Date']
 ];
 
 if ($period == 'custom' && !empty($custom_start) && !empty($custom_end)) {
@@ -1059,7 +981,7 @@ $current_gregorian_date = date('F j, Y');
                 <a href="?period=3months&view=<?php echo $view; ?>" class="period-btn <?php echo $period == '3months' ? 'active' : ''; ?>">3 ወር</a>
                 <a href="?period=6months&view=<?php echo $view; ?>" class="period-btn <?php echo $period == '6months' ? 'active' : ''; ?>">6 ወር</a>
                 <a href="?period=1year&view=<?php echo $view; ?>" class="period-btn <?php echo $period == '1year' ? 'active' : ''; ?>">1 አመት</a>
-                <a href="?period=custom&view=<?php echo $view; ?>" class="period-btn <?php echo $period == 'custom' ? 'active' : ''; ?>">ብጁ</a>
+                <a href="?period=custom&view=<?php echo $view; ?>" class="period-btn <?php echo $period == 'custom' ? 'active' : ''; ?>">Custom</a>
             </div>
         </div>
 
@@ -1114,7 +1036,7 @@ $current_gregorian_date = date('F j, Y');
 
             <div class="stat-card">
                 <div class="stat-icon"><i class="fas fa-users"></i></div>
-                <div class="stat-label">ንቁ ሻጮች</div>
+                <div class="stat-label">Active ሻጮች</div>
                 <div class="stat-value">
                     <?php 
                     $active_sellers = 0;
@@ -1259,7 +1181,7 @@ $current_gregorian_date = date('F j, Y');
                             endwhile;
                         else: 
                         ?>
-                            <tr><td colspan="6" style="text-align: center; padding: 40px;">ምንም ውሂብ አልተገኘም</td></tr>
+                            <tr><td colspan="6" style="text-align: center; padding: 40px;">ምንም data አልተገኘም</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1360,7 +1282,7 @@ $current_gregorian_date = date('F j, Y');
                             </tr>
                             <?php endwhile; ?>
                         <?php else: ?>
-                             <tr><td colspan="2" style="text-align: center; padding: 40px;">ምንም ውሂብ አልተገኘም</td></tr>
+                             <tr><td colspan="2" style="text-align: center; padding: 40px;">ምንም data አልተገኘም</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1466,7 +1388,7 @@ $current_gregorian_date = date('F j, Y');
         <?php else: ?>
         const chartContainer = document.getElementById('salesChart');
         if (chartContainer && chartContainer.parentElement) {
-            chartContainer.parentElement.innerHTML = '<div style="text-align: center; padding: 60px; color: #999;"><i class="fas fa-chart-line" style="font-size: 64px; margin-bottom: 20px; opacity: 0.5;"></i><div>ምንም ውሂብ አልተገኘም</div><small>ለዚህ ጊዜ ክልል ምንም ሽያጭ የለም</small></div>';
+            chartContainer.parentElement.innerHTML = '<div style="text-align: center; padding: 60px; color: #999;"><i class="fas fa-chart-line" style="font-size: 64px; margin-bottom: 20px; opacity: 0.5;"></i><div>ምንም data አልተገኘም</div><small>ለዚህ ጊዜ ክልል ምንም ሽያጭ የለም</small></div>';
         }
         <?php endif; ?>
 

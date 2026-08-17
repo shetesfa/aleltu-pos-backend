@@ -185,6 +185,118 @@ if ($has_run && $current_branch_id > 0 && !empty($target_dates)) {
 
     ksort($report);
     uasort($product_totals, function ($a, $b) { return $b['sold_qty'] <=> $a['sold_qty']; });
+
+    // -----------------------------------------------------------------------
+    // DAILY INVENTORY FLOW (Opening -> Stock In -> Available -> Sold -> Closing)
+    // -----------------------------------------------------------------------
+    $min_date = !empty($target_dates) ? min($target_dates) : date('Y-m-d');
+    $prior_stock = [];
+    $prior_stock_sql = "SELECT item_name, SUM(quantity) qty
+                        FROM stock_logs
+                        WHERE branch_id = $current_branch_id
+                          AND DATE(date_added) < '$min_date'
+                          $stock_filter_sql
+                        GROUP BY item_name";
+    $psr = mysqli_query($conn, $prior_stock_sql);
+    if ($psr) {
+        while ($row = mysqli_fetch_assoc($psr)) {
+            $prior_stock[$row['item_name']] = (float)$row['qty'];
+        }
+    }
+
+    $prior_sales = [];
+    $prior_sales_sql = "SELECT ti.product_name, SUM(ti.quantity) qty
+                        FROM transaction_items ti
+                        JOIN transactions t ON t.id = ti.transaction_id
+                        WHERE t.branch_id = $current_branch_id
+                          AND DATE(t.transaction_date) < '$min_date'
+                          $prod_filter_sql $pay_sql
+                        GROUP BY ti.product_name";
+    $psar = mysqli_query($conn, $prior_sales_sql);
+    if ($psar) {
+        while ($row = mysqli_fetch_assoc($psar)) {
+            $prior_sales[$row['product_name']] = (float)$row['qty'];
+        }
+    }
+
+    $daily_flow = [];
+    $flow_product_names = array_unique(array_merge(array_keys($product_totals), array_keys($prior_stock), array_keys($prior_sales)));
+    if (!empty($selected_product_names)) {
+        $flow_product_names = array_intersect($flow_product_names, $selected_product_names);
+    }
+    $flow_product_names = array_values(array_unique(array_merge($flow_product_names, array_keys($product_totals))));
+    sort($flow_product_names);
+
+    foreach ($flow_product_names as $pname) {
+        $prior_in = (float)($prior_stock[$pname] ?? 0);
+        $prior_out = (float)($prior_sales[$pname] ?? 0);
+        $start_balance = $prior_in - $prior_out;
+        
+        $running_stock = $start_balance;
+        $p_in_tot = 0;
+        $p_sold_tot = 0;
+        $p_rev_tot = 0;
+        $p_tx_tot = 0;
+        $p_days = [];
+
+        foreach ($target_dates as $d) {
+            $d_stock_in = 0;
+            if (isset($report[$d]['stock'])) {
+                foreach ($report[$d]['stock'] as $stk) {
+                    if ($stk['item_name'] === $pname) {
+                        $d_stock_in += (float)$stk['qty'];
+                    }
+                }
+            }
+
+            $d_sold = 0;
+            $d_rev = 0;
+            $d_tx = 0;
+            if (isset($report[$d]['products'])) {
+                foreach ($report[$d]['products'] as $prod) {
+                    if ($prod['product_name'] === $pname) {
+                        $d_sold += (float)$prod['qty'];
+                        $d_rev  += (float)$prod['revenue'];
+                        $d_tx   += (int)$prod['tx_count'];
+                    }
+                }
+            }
+
+            $open = $running_stock;
+            $avail = $open + $d_stock_in;
+            $close = $avail - $d_sold;
+            $running_stock = $close;
+
+            $p_in_tot += $d_stock_in;
+            $p_sold_tot += $d_sold;
+            $p_rev_tot += $d_rev;
+            $p_tx_tot += $d_tx;
+
+            $p_days[$d] = [
+                'date' => $d,
+                'opening' => $open,
+                'stock_in' => $d_stock_in,
+                'available' => $avail,
+                'sold' => $d_sold,
+                'closing' => $close,
+                'revenue' => $d_rev,
+                'tx_count' => $d_tx,
+                'has_activity' => ($d_stock_in != 0 || $d_sold != 0)
+            ];
+        }
+
+        if ($p_in_tot != 0 || $p_sold_tot != 0 || $start_balance != 0) {
+            $daily_flow[$pname] = [
+                'start_balance' => $start_balance,
+                'end_balance' => $running_stock,
+                'total_in' => $p_in_tot,
+                'total_sold' => $p_sold_tot,
+                'total_rev' => $p_rev_tot,
+                'total_tx' => $p_tx_tot,
+                'days' => $p_days
+            ];
+        }
+    }
 }
 
 $days_with_data = count($report);
@@ -197,7 +309,7 @@ if ($export === 'excel' && $has_run) {
     $colCount = 6;
     $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
     $sheet = $spreadsheet->getActiveSheet();
-    $sheet->setTitle('ከፍተኛ ሪፖርት');
+    $sheet->setTitle('በምርት የተጠቃለለ');
 
     $widths = [24, 16, 18, 18, 18, 14];
     foreach ($widths as $i => $w) {
@@ -247,6 +359,51 @@ if ($export === 'excel' && $has_run) {
         if ($c >= 2 && $c <= 5) {
             $cell->getStyle()->getNumberFormat()->setFormatCode('#,##0.00');
         }
+    }
+
+    // Sheet 2: Daily Inventory & Stock Flow
+    if (!empty($daily_flow)) {
+        $sheet2 = $spreadsheet->createSheet();
+        $sheet2->setTitle('የዕለት ክምችት ፍሰት');
+        
+        $colCount2 = 9;
+        $widths2 = [20, 22, 18, 18, 18, 18, 18, 18, 12];
+        foreach ($widths2 as $i => $w) {
+            $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+            $sheet2->getColumnDimension($colLetter)->setWidth($w);
+        }
+
+        $nextRow2 = renderExcelBannerReal($sheet2, 'የዕለት ክምችት እና ሽያጭ ሙሉ ፍሰት (Daily Stock Flow)', $current_branch_name, $dateInfoText, 1, $colCount2);
+
+        $headers2 = ['ቀን (Date)', 'ምርት (Product)', 'የትላንት ቀሪ (Opening)', 'የዛሬ ስቶክ ገቢ (Stock In)', 'ጠቅላላ የነበረ (Available)', 'የተሸጠ ብዛት (Sold)', 'የቀኑ ቀሪ (Closing)', 'የቀኑ ገቢ (ብር)', 'ግብይቶች'];
+        foreach ($headers2 as $i => $label) {
+            $sheet2->setCellValue([$i + 1, $nextRow2], $label);
+        }
+        styleExcelHeaderRow($sheet2, $nextRow2, $colCount2);
+        $r2 = $nextRow2 + 1;
+
+        foreach ($daily_flow as $pname => $pdata) {
+            foreach ($pdata['days'] as $d => $drow) {
+                if (!$drow['has_activity'] && $drow['opening'] == 0 && $drow['closing'] == 0) continue;
+                
+                $sheet2->setCellValue([1, $r2], $d);
+                $sheet2->setCellValue([2, $r2], $pname);
+                $sheet2->setCellValue([3, $r2], (float)$drow['opening']);
+                $sheet2->setCellValue([4, $r2], (float)$drow['stock_in']);
+                $sheet2->setCellValue([5, $r2], (float)$drow['available']);
+                $sheet2->setCellValue([6, $r2], (float)$drow['sold']);
+                $sheet2->setCellValue([7, $r2], (float)$drow['closing']);
+                $sheet2->setCellValue([8, $r2], (float)$drow['revenue']);
+                $sheet2->setCellValue([9, $r2], (int)$drow['tx_count']);
+
+                for ($ci = 3; $ci <= 8; $ci++) {
+                    $sheet2->getStyle([$ci, $r2])->getNumberFormat()->setFormatCode('#,##0.00');
+                }
+                styleExcelDataRow($sheet2, $r2, $colCount2, ($r2 % 2 === 0));
+                $r2++;
+            }
+        }
+        $spreadsheet->setActiveSheetIndex(0);
     }
 
     downloadExcelSpreadsheet($spreadsheet, 'advanced_report_' . date('Y-m-d_His'));
@@ -575,14 +732,104 @@ table.report-table tr:hover td { background: #e2e8f0; }
 .pos { color: #047857; font-weight: 800; }
 .neg { color: var(--danger); font-weight: 800; }
 
-.empty-state { text-align: center; padding: 50px 20px; color: var(--muted); }
-.empty-state i { font-size: 48px; margin-bottom: 14px; color: #94a3b8; }
+/* Flow Table & Badges */
+.flow-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  background: #f8fafc;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.flow-pills { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.flow-pill {
+  background: #ffffff;
+  border: 1.5px solid var(--border);
+  color: #334155;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.flow-pill:hover { background: #e0e7ff; color: var(--primary); border-color: var(--primary-light); }
+.flow-pill.active {
+  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  color: #fbbf24;
+  border-color: #1e1b4b;
+  box-shadow: 0 4px 10px rgba(30, 27, 75, 0.25);
+}
+.flow-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  background: #fff;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  user-select: none;
+}
+.flow-toggle-label input { accent-color: var(--primary-light); width: 16px; height: 16px; cursor: pointer; }
+
+.badge-flow {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  min-width: 60px;
+}
+.badge-open { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.badge-in { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.badge-avail { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
+.badge-sold { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.badge-close { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+.flow-product-section { margin-bottom: 24px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+.flow-product-head {
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+  color: #fbbf24;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 800;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.flow-product-head .flow-meta {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1f5f9;
+  background: rgba(255,255,255,0.15);
+  padding: 4px 12px;
+  border-radius: 20px;
+  display: inline-flex;
+  gap: 12px;
+}
 
 @media print {
   .no-print { display: none !important; }
   body { background: #fff; padding: 0; }
   .card { box-shadow: none; border: 1px solid #ccc; }
   .tbl-wrap { max-height: none; overflow: visible; }
+  .flow-product-section { page-break-inside: avoid; border: 1px solid #ccc; margin-bottom: 15px; }
+  .flow-product-head { background: #1e1b4b !important; color: #fff !important; }
 }
 </style>
 </head>
@@ -690,7 +937,7 @@ table.report-table tr:hover td { background: #e2e8f0; }
                 <button type="submit" name="export" value="excel" class="btn btn-excel"><i class="fas fa-file-excel"></i> Excel Export</button>
                 <button type="button" class="btn btn-print" onclick="window.print()"><i class="fas fa-file-pdf"></i> PDF / Print</button>
                 <?php endif; ?>
-                <a href="advanced_report.php" class="btn btn-clear"><i class="fas fa-redo"></i> ማጣሪያ አጽዳ / Reset</a>
+                <a href="advanced_report.php" class="btn btn-clear"><i class="fas fa-redo"></i> Filter Clear / Reset</a>
             </div>
         </div>
     </form>
@@ -771,49 +1018,119 @@ table.report-table tr:hover td { background: #e2e8f0; }
             <?php endif; ?>
         </div>
 
-        <?php if (!empty($report)): ?>
+        <?php if (!empty($daily_flow)): ?>
         <div class="card">
-            <h2><i class="fas fa-calendar-day"></i> በቀን የተከፋፈለ ዝርዝር / Detail by Date <span style="font-size:12px;color:var(--muted);font-weight:400;">(<?php echo $days_with_data; ?> of <?php echo $days_selected; ?> selected days have activity)</span></h2>
-            <?php foreach ($report as $d => $info):
-                $dObj = DateTime::createFromFormat('Y-m-d', $d);
-                $label = $dObj ? $dObj->format('l, d M Y') : $d;
-            ?>
-            <div class="date-section">
-                <div class="date-head" onclick="toggleDate(this)">
-                    <div><i class="fas fa-caret-right caret"></i> <b><?php echo htmlspecialchars($label); ?></b></div>
-                    <div class="mini">ሽያጭ: <?php echo number_format($info['sale_total'], 2); ?> ብር &nbsp;|&nbsp; ስቶክ ገቢ: <?php echo number_format($info['stock_total'], 2); ?></div>
+            <h2>
+                <i class="fas fa-boxes-packing" style="color:var(--accent-gold);"></i> 
+                የዕለት ክምችት እና ሽያጭ ሙሉ ፍሰት / Daily Stock &amp; Sales Flow 
+                <span style="font-size:12px;color:var(--muted);font-weight:400;">(የትላንት መነሻ + ስቶክ ገቢ = ጠቅላላ ዝግጁ | ጠቅላላ ዝግጁ - የተሸጠ = የቀኑ ቀሪ)</span>
+            </h2>
+
+            <div class="flow-header-bar no-print">
+                <div class="flow-pills">
+                    <span style="font-size:13px;font-weight:700;color:var(--muted);margin-right:4px;">ምርት ይምረጡ:</span>
+                    <?php if (count($daily_flow) > 1): ?>
+                        <button type="button" class="flow-pill active" onclick="filterFlowProduct('all', this)"><i class="fas fa-layer-group"></i> ሁሉም ምርቶች (All)</button>
+                    <?php endif; ?>
+                    <?php 
+                    $first_p = true;
+                    foreach ($daily_flow as $pname => $pdata): 
+                        $isActiveClass = (count($daily_flow) === 1 || ($first_p && count($daily_flow) === 1)) ? 'active' : '';
+                    ?>
+                        <button type="button" class="flow-pill <?php echo $isActiveClass; ?>" onclick="filterFlowProduct('<?php echo htmlspecialchars(addslashes($pname)); ?>', this)">
+                            <i class="fas fa-cube"></i> <?php echo htmlspecialchars($pname); ?>
+                        </button>
+                    <?php 
+                        $first_p = false;
+                    endforeach; 
+                    ?>
                 </div>
-                <div class="date-body">
-                    <?php if (!empty($info['products'])): ?>
+                <div>
+                    <label class="flow-toggle-label">
+                        <input type="checkbox" id="chkActiveOnly" checked onchange="toggleFlowActiveDays(this.checked)">
+                        <span>እንቅስቃሴ ያላቸውን ቀናት ብቻ አሳይ (Active Days Only)</span>
+                    </label>
+                </div>
+            </div>
+
+            <?php 
+            $dayNameAmharic = ['Monday'=>'ሰኞ', 'Tuesday'=>'ማክሰኞ', 'Wednesday'=>'ረቡዕ', 'Thursday'=>'ሐሙስ', 'Friday'=>'አርብ', 'Saturday'=>'ቅዳሜ', 'Sunday'=>'እሁድ'];
+            foreach ($daily_flow as $pname => $pdata): 
+            ?>
+            <div class="flow-product-section" data-product="<?php echo htmlspecialchars($pname); ?>">
+                <div class="flow-product-head">
+                    <div>
+                        <i class="fas fa-box-open"></i> <?php echo htmlspecialchars($pname); ?>
+                    </div>
+                    <div class="flow-meta">
+                        <span>📦 መነሻ ስቶክ: <b><?php echo number_format($pdata['start_balance'], 2); ?></b></span>
+                        <span>📥 ጠቅላላ የገባ: <b><?php echo number_format($pdata['total_in'], 2); ?></b></span>
+                        <span>📤 ጠቅላላ የተሸጠ: <b><?php echo number_format($pdata['total_sold'], 2); ?></b></span>
+                        <span>⚖️ የመጨረሻ ቀሪ: <b><?php echo number_format($pdata['end_balance'], 2); ?></b></span>
+                        <span>💰 ገቢ: <b><?php echo number_format($pdata['total_rev'], 2); ?> ብር</b></span>
+                    </div>
+                </div>
+                <div class="tbl-wrap" style="max-height: 480px;">
                     <table class="report-table">
-                        <thead><tr><th>ምርት</th><th>ብዛት</th><th>ገቢ</th><th>ግብይቶች</th></tr></thead>
-                        <tbody>
-                        <?php foreach ($info['products'] as $row): ?>
+                        <thead>
                             <tr>
-                                <td><?php echo htmlspecialchars($row['product_name']); ?></td>
-                                <td><?php echo number_format($row['qty'], 2); ?></td>
-                                <td><?php echo number_format($row['revenue'], 2); ?></td>
-                                <td><?php echo $row['tx_count']; ?></td>
+                                <th style="min-width:180px;">ቀን / Date</th>
+                                <th style="text-align:right;">📦 የትላንት ቀሪ<br>Opening Stock</th>
+                                <th style="text-align:right;">📥 የዛሬ ስቶክ ገቢ (+)<br>Stock In</th>
+                                <th style="text-align:right;">📦 ጠቅላላ የነበረ (=)<br>Total Available</th>
+                                <th style="text-align:right;">📤 የተሸጠ ብዛት (-)<br>Sold Qty</th>
+                                <th style="text-align:right;">⚖️ የቀኑ ቀሪ ስቶክ (=)<br>Closing Stock</th>
+                                <th style="text-align:right;">💰 የቀኑ ገቢ (ብር)<br>Daily Revenue</th>
+                                <th style="text-align:center;">ግብይቶች<br>Tx</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($pdata['days'] as $d => $drow): 
+                            $dObj = DateTime::createFromFormat('Y-m-d', $d);
+                            $engDay = $dObj ? $dObj->format('l') : '';
+                            $amDay = $dayNameAmharic[$engDay] ?? '';
+                            $dateTitle = $dObj ? ($dObj->format('Y-m-d') . ' (' . ($amDay ? $amDay . ' / ' : '') . $engDay . ')') : $d;
+                            $rowClass = $drow['has_activity'] ? 'flow-row-active' : 'flow-row-inactive';
+                        ?>
+                            <tr class="<?php echo $rowClass; ?>" style="<?php echo (!$drow['has_activity'] && $drow['opening'] == 0 && $drow['closing'] == 0) ? 'display:none;' : ''; ?>">
+                                <td><b><?php echo htmlspecialchars($dateTitle); ?></b></td>
+                                <td style="text-align:right;"><span class="badge-flow badge-open"><?php echo number_format($drow['opening'], 2); ?></span></td>
+                                <td style="text-align:right;">
+                                    <?php if ($drow['stock_in'] > 0): ?>
+                                        <span class="badge-flow badge-in">+<?php echo number_format($drow['stock_in'], 2); ?></span>
+                                    <?php elseif ($drow['stock_in'] < 0): ?>
+                                        <span class="badge-flow badge-sold"><?php echo number_format($drow['stock_in'], 2); ?></span>
+                                    <?php else: ?>
+                                        <span style="color:var(--muted);">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="text-align:right;"><span class="badge-flow badge-avail"><?php echo number_format($drow['available'], 2); ?></span></td>
+                                <td style="text-align:right;">
+                                    <?php if ($drow['sold'] > 0): ?>
+                                        <span class="badge-flow badge-sold">-<?php echo number_format($drow['sold'], 2); ?></span>
+                                    <?php else: ?>
+                                        <span style="color:var(--muted);">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="text-align:right;"><span class="badge-flow badge-close"><?php echo number_format($drow['closing'], 2); ?></span></td>
+                                <td style="text-align:right;font-weight:700;color:var(--primary);"><?php echo number_format($drow['revenue'], 2); ?></td>
+                                <td style="text-align:center;"><?php echo $drow['tx_count'] > 0 ? $drow['tx_count'] : '<span style="color:var(--muted);">-</span>'; ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
-                    </table>
-                    <?php else: ?>
-                        <div style="padding:10px 16px;color:var(--muted);font-size:13px;">በዚህ ቀን ምንም ሽያጭ የለም / No sales this day.</div>
-                    <?php endif; ?>
-                    <?php if (!empty($info['stock'])): ?>
-                    <table class="report-table" style="margin-top:6px;">
-                        <thead><tr><th colspan="2">ስቶክ ገቢ (Stock In) — <?php echo htmlspecialchars($d); ?></th></tr></thead>
-                        <tbody>
-                        <?php foreach ($info['stock'] as $row): ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($row['item_name']); ?></td>
-                                <td class="<?php echo $row['qty'] >= 0 ? 'pos' : 'neg'; ?>"><?php echo number_format($row['qty'], 2); ?></td>
+                        <tfoot>
+                            <tr class="total-row">
+                                <td>ጠቅላላ ድምር (TOTAL)</td>
+                                <td style="text-align:right;"><?php echo number_format($pdata['start_balance'], 2); ?></td>
+                                <td style="text-align:right;"><?php echo number_format($pdata['total_in'], 2); ?></td>
+                                <td style="text-align:right;">—</td>
+                                <td style="text-align:right;"><?php echo number_format($pdata['total_sold'], 2); ?></td>
+                                <td style="text-align:right;"><?php echo number_format($pdata['end_balance'], 2); ?></td>
+                                <td style="text-align:right;"><?php echo number_format($pdata['total_rev'], 2); ?></td>
+                                <td style="text-align:center;"><?php echo $pdata['total_tx']; ?></td>
                             </tr>
-                        <?php endforeach; ?>
-                        </tbody>
+                        </tfoot>
                     </table>
-                    <?php endif; ?>
                 </div>
             </div>
             <?php endforeach; ?>
@@ -960,17 +1277,26 @@ function renderChips() {
 renderCalendar();
 renderChips();
 
-// ---------------- Date-section accordion ----------------
-function toggleDate(headEl) {
-    headEl.classList.toggle('open');
-    const body = headEl.nextElementSibling;
-    body.classList.toggle('open');
+// ---------------- Daily Flow Product & Active filter ----------------
+function filterFlowProduct(pname, btn) {
+    document.querySelectorAll('.flow-pill').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    const sections = document.querySelectorAll('.flow-product-section');
+    sections.forEach(sec => {
+        if (pname === 'all' || sec.getAttribute('data-product') === pname) {
+            sec.style.display = 'block';
+        } else {
+            sec.style.display = 'none';
+        }
+    });
 }
-// Auto-open first date section
-document.addEventListener('DOMContentLoaded', () => {
-    const first = document.querySelector('.date-head');
-    if (first) toggleDate(first);
-});
+
+function toggleFlowActiveDays(activeOnly) {
+    const inactiveRows = document.querySelectorAll('.flow-row-inactive');
+    inactiveRows.forEach(row => {
+        row.style.display = activeOnly ? 'none' : '';
+    });
+}
 
 // Guard: if dates-mode selected with nothing picked, warn before submit
 document.getElementById('filterForm').addEventListener('submit', function (e) {

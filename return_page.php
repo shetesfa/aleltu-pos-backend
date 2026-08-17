@@ -1160,7 +1160,7 @@ function format_gregorian_datetime_12hr($datetime) {
 
                     <div class="form-group">
                         <label><i class="fas fa-comment"></i> ምክንያት (አማራጭ)</label>
-                        <input type="text" name="reason" class="form-control" placeholder="ለምን ትመልሳለህ?">
+                        <input type="text" name="reason" class="form-control" placeholder="የመመለሻ ምክንያት / ለምን ይመለሳል?">
                     </div>
 
                     <button type="submit" name="submit_return" class="btn-return">
@@ -1325,19 +1325,19 @@ function format_gregorian_datetime_12hr($datetime) {
             
             if (!productSelect || !productSelect.value) {
                 e.preventDefault();
-                alert('እባክህ እቃ ምረጥ');
+                alert('እባክዎ እቃ ይምረጡ');
                 return;
             }
             
             if (isNaN(quantity) || quantity <= 0) {
                 e.preventDefault();
-                alert('እባክህ ትክክለኛ መጠን አስገባ');
+                alert('እባክዎ ትክክለኛ መጠን ያስገቡ');
                 return;
             }
             
             if (stockInfo && stockInfo.classList.contains('active') && !isNaN(currentStock) && quantity > currentStock) {
                 e.preventDefault();
-                alert(`ልትመልሰው የምትፈልገው መጠን ካለህ ክምችት በላይ ነው!\nአጠቃላይ ክምችት: ${currentStock}`);
+                alert(`ሊመልሱት የፈለጉት መጠን ካለዎት ክምችት በላይ ነው!\nአጠቃላይ ክምችት: ${currentStock}`);
             }
         });
 

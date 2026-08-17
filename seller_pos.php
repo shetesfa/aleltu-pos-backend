@@ -55,81 +55,23 @@ if ($user_role != 'super_admin') {
     }
 }
 
-// ========== ETHIOPIAN DATE FUNCTION ==========
+// ========== ETHIOPIAN DATE FUNCTION (EXACT LEAP YEAR PAGUME 6 SUPPORT) ==========
 function get_ethiopian_date_time() {
     try {
-        $gregorian_date = date('Y-m-d');
-        list($greg_year, $greg_month, $greg_day) = explode('-', $gregorian_date);
-        
-        $ethiopian_months = [
-            1 => ['start' => '09-11', 'name' => 'መስከረም'],
-            2 => ['start' => '10-11', 'name' => 'ጥቅምት'],
-            3 => ['start' => '11-10', 'name' => 'ኅዳር'],
-            4 => ['start' => '12-10', 'name' => 'ታኅሣሥ'],
-            5 => ['start' => '01-09', 'name' => 'ጥር'],
-            6 => ['start' => '02-08', 'name' => 'የካቲት'],
-            7 => ['start' => '03-10', 'name' => 'መጋቢት'],
-            8 => ['start' => '04-09', 'name' => 'ሚያዝያ'],
-            9 => ['start' => '05-09', 'name' => 'ግንቦት'],
-            10 => ['start' => '06-08', 'name' => 'ሰኔ'],
-            11 => ['start' => '07-08', 'name' => 'ሐምሌ'],
-            12 => ['start' => '08-07', 'name' => 'ነሐሴ'],
-            13 => ['start' => '09-06', 'name' => 'ጳጉሜ']
-        ];
-        
-        $ethiopian_year = $greg_year - 8;
-        if ($greg_month >= 9 || ($greg_month == 9 && $greg_day >= 11)) {
-            $ethiopian_year++;
-        }
-        
-        $current_date = $greg_month . '-' . $greg_day;
-        $eth_month = 1;
-        $eth_day = 1;
-        
-        for ($i = 1; $i <= 13; $i++) {
-            $month_start = $ethiopian_months[$i]['start'];
-            if ($current_date >= $month_start) {
-                if ($i == 13) {
-                    $next_year_first_month = $ethiopian_months[1]['start'];
-                    if ($current_date < $next_year_first_month) {
-                        $eth_month = $i;
-                        list($next_month, $next_day) = explode('-', $next_year_first_month);
-                        $greg_next_date = strtotime($greg_year . '-' . $next_month . '-' . $next_day);
-                        $greg_current = strtotime($greg_year . '-' . $greg_month . '-' . $greg_day);
-                        $eth_day = (int)(($greg_next_date - $greg_current) / (60 * 60 * 24));
-                        break;
-                    }
-                } else {
-                    $next_month_start = $ethiopian_months[$i + 1]['start'];
-                    if ($current_date < $next_month_start) {
-                        $eth_month = $i;
-                        list($start_month, $start_day) = explode('-', $month_start);
-                        $greg_start = strtotime($greg_year . '-' . $start_month . '-' . $start_day);
-                        $greg_current = strtotime($greg_year . '-' . $greg_month . '-' . $greg_day);
-                        $eth_day = (int)(($greg_current - $greg_start) / (60 * 60 * 24)) + 1;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        $timestamp = time();
-        $ethiopian_timestamp = $timestamp + (3 * 3600);
-        $eth_time_12h = date('h:i A', $ethiopian_timestamp);
-        
-        $eth_date = $ethiopian_year . '-' . str_pad($eth_month, 2, '0', STR_PAD_LEFT) . '-' . str_pad($eth_day, 2, '0', STR_PAD_LEFT);
+        $eth = getEthiopianDate();
+        $eth_time_12h = date('h:i A');
         
         return [
-            'date' => $eth_date,
+            'date' => $eth['short'],
             'time' => $eth_time_12h,
-            'full_datetime' => $eth_date . ' ' . $eth_time_12h,
-            'year' => $ethiopian_year,
-            'month' => $eth_month,
-            'day' => $eth_day,
-            'month_name' => $ethiopian_months[$eth_month]['name'] ?? ''
+            'full_datetime' => $eth['short'] . ' ' . $eth_time_12h,
+            'formatted' => $eth['formatted'],
+            'year' => $eth['year'],
+            'month' => $eth['month'],
+            'day' => $eth['day'],
+            'month_name' => $eth['month_name']
         ];
     } catch (Exception $e) {
-        error_log("Error in Ethiopian date function: " . $e->getMessage());
         return [
             'date' => date('Y-m-d'),
             'time' => date('h:i A'),
@@ -2003,8 +1945,16 @@ if (isset($_SESSION['error'])) {
         }
     }
 
+    let lastCheckoutClickTime = 0;
+
     function finishTransaction() {
+        const now = Date.now();
+        if (now - lastCheckoutClickTime < 1000) {
+            return; // 1-second double-click debounce lock
+        }
         if (isLoading) return;
+        lastCheckoutClickTime = now;
+
         if (transactionItems.length === 0) { 
             alert('Add items first!'); 
             return; 
@@ -2026,13 +1976,13 @@ if (isset($_SESSION['error'])) {
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
         }
         const items = [...transactionItems];
-        
         saveTransactionToDatabase(items).then(() => {
             transactionItems = []; 
             total = 0; 
             updateTable(); 
             calculateTotal(); 
             calcResetCalculator(); 
+            updateProductsDisplay(productsData);
             refreshProductsList();
             if (btn) {
                 btn.disabled = false; 
@@ -2064,8 +2014,70 @@ if (isset($_SESSION['error'])) {
         if (paid <= 0) paid = total;
         let change = Math.max(0, paid - total);
         let deviceUUID = (window.deviceManager ? window.deviceManager.getDeviceUUID() : 'browser-pos');
+        // One ID is shared by the direct request and any offline retry. If the
+        // server commits just before a connection drops, the later sync becomes
+        // an idempotent acknowledgement instead of a second sale.
+        let saleUUID = (window.aleltuDB ? window.aleltuDB.generateUUID() :
+            (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now())));
 
-        // Evaluate offline rule limits before saving
+        // 1. Direct Online Save to Server Database
+        if (navigator.onLine) {
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('branch_id', branchId);
+            formData.append('paid', paid);
+            formData.append('payment_method', selectedPaymentMethod);
+            formData.append('items', JSON.stringify(items));
+            formData.append('sale_uuid', saleUUID);
+
+            try {
+                // Use the application-root URL so a cached/offline page opened
+                // from another route cannot post to the wrong relative endpoint.
+                const res = await fetch('/aleltu/save_transaction', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' },
+                    body: formData
+                });
+
+                const data = await res.json().catch(() => null);
+
+                if (res.ok && data && data.success) {
+                    // Instantly deduct local in-memory productsData so UI reflects new stock immediately
+                    items.forEach(it => {
+                        const p = productsData.find(prod => prod.id === it.id || prod.name === it.name);
+                        if (p) {
+                            p.current_stock = Math.max(0, Math.round((p.current_stock - it.quantity) * 100) / 100);
+                        }
+                    });
+
+                    // Keep the local stock snapshot accurate, but do NOT put an
+                    // already-saved online sale in the offline outbox. Previously
+                    // performLocalSale always created a PENDING sync event here,
+                    // causing duplicate sales and a permanently pending badge.
+                    if (window.aleltuDB) {
+                        try {
+                            await window.aleltuDB.applyOnlineInventoryDelta(items);
+                        } catch(e) { /* non-fatal local cache */ }
+                    }
+
+                    return data;
+                } else if (data && data.error) {
+                    // Server explicitly rejected (e.g. out of stock or permission error)
+                    throw new Error(data.error);
+                } else {
+                    throw new Error('Server returned HTTP ' + res.status);
+                }
+            } catch(onlineErr) {
+                // If it's a validation error or out of stock from server, throw it directly
+                if (onlineErr.message && !onlineErr.message.includes('Failed to fetch') && !onlineErr.message.includes('NetworkError') && !onlineErr.message.includes('HTTP 502') && !onlineErr.message.includes('HTTP 504')) {
+                    throw onlineErr;
+                }
+                console.warn('Network issue saving online, falling back to offline mode:', onlineErr);
+            }
+        }
+
+        // 2. OFFLINE FALLBACK: only reached if device is truly offline or network is disconnected
         if (window.offlineRulesEngine) {
             const ruleCtx = {
                 branch_id: branchId,
@@ -2080,32 +2092,13 @@ if (isset($_SESSION['error'])) {
                 });
                 if (!check.allowed) {
                     const productName = it.name || it.product_name || ('Product #' + it.id);
-                    const rule = check.effective_rule;
-                    const isQtyLimit = rule && parseFloat(rule.max_offline_qty) > 0 && parseInt(rule.allow_offline) === 1;
-
-                    if (isQtyLimit) {
-                        // Quantity limit exceeded
-                        throw new Error(
-                            `"${productName}": ኦፍላይን መሸጥ የሚችሉት ` +
-                            `${parseFloat(rule.max_offline_qty)} ብቻ ነው። ` +
-                            `(Offline limit for "${productName}" is ${parseFloat(rule.max_offline_qty)} units. ` +
-                            `You requested ${it.quantity}. Connect to internet to sell more.)`
-                        );
-                    } else {
-                        // Fully blocked offline
-                        throw new Error(
-                            `"${productName}" ኦፍላይን ሊሸጥ አይችልም — ` +
-                            `ይህ ምርት ያለ ኢንተርኔት ለመሸጥ ተከልክሏል።\n` +
-                            `This product is not allowed to be sold offline.\n` +
-                            `ኢንተርኔቱን ካገናኙ በኋላ ይሸጡ። (Please connect to the internet first.)`
-                        );
-                    }
+                    throw new Error(`"${productName}" ኦፍላይን ሊሸጥ አይችልም (Offline sale blocked for this product).`);
                 }
             }
         }
 
-
         const salePayload = {
+            sale_uuid: saleUUID,
             seller_id: userId,
             seller_name: '<?php echo addslashes($current_user); ?>',
             branch_id: branchId,
@@ -2117,12 +2110,20 @@ if (isset($_SESSION['error'])) {
             items: items
         };
 
-        // 1. Write transaction locally into IndexedDB atomically
+        // Write to local IndexedDB
         if (window.aleltuDB) {
             await window.aleltuDB.performLocalSale(salePayload);
         }
 
-        // 2. Trigger background sync attempt immediately
+        // Deduct local product stock immediately
+        items.forEach(it => {
+            const p = productsData.find(prod => prod.id === it.id || prod.name === it.name);
+            if (p) {
+                p.current_stock = Math.max(0, Math.round((p.current_stock - it.quantity) * 100) / 100);
+            }
+        });
+
+        // Trigger background sync if possible
         if (window.syncEngine && navigator.onLine) {
             window.syncEngine.triggerSync().catch(err => console.warn('Background sync deferred:', err));
         }
@@ -2160,9 +2161,15 @@ if (isset($_SESSION['error'])) {
                 if (xhr.status === 200) { 
                     try { 
                         let p = JSON.parse(xhr.responseText); 
-                        if (p && !p.error) {
-                            updateProductsDisplay(p); 
-                            productsData = p;
+                        if (p && !p.error && Array.isArray(p)) {
+                            productsData = p.map(item => ({
+                                id: parseInt(item.id),
+                                name: item.name,
+                                unit_price: parseFloat(item.unit_price),
+                                current_stock: parseFloat(item.current_stock),
+                                unit: item.unit || 'pcs'
+                            }));
+                            updateProductsDisplay(productsData); 
                         }
                     } catch(e){
                         console.error('Error parsing product refresh response:', e);
@@ -2174,6 +2181,7 @@ if (isset($_SESSION['error'])) {
             }
         };
         xhr.onerror = function() {
+            updateProductsDisplay(productsData);
             if (retryCount < 2) {
                 setTimeout(function() { refreshProductsList(retryCount + 1); }, 3000);
             }
@@ -2541,6 +2549,10 @@ if (isset($_SESSION['error'])) {
                 </div>
             </div>`;
         document.body.appendChild(overlay);
+        // This screen is a live queue, not a history screen; a Today filter is
+        // unnecessary and confuses sellers.
+        const todayTab = overlay.querySelector('[data-filter="today"]');
+        if (todayTab) todayTab.remove();
 
         // Close on overlay click (outside panel)
         overlay.addEventListener('click', function(e) {
@@ -2588,11 +2600,23 @@ if (isset($_SESSION['error'])) {
         if (overlay) overlay.classList.remove('open');
     };
 
-    window.forceSyncNow = function() {
+    window.forceSyncNow = async function() {
+        if (!navigator.onLine) {
+            showToast('⚠️ No internet connection to sync.', 'error');
+            return;
+        }
         if (window.syncEngine) {
-            window.syncEngine.forceSyncNow();
-            showToast('🔄 Sync started...', 'info');
-            setTimeout(refreshOfflinePopup, 2500);
+            showToast('🔄 Syncing offline sales to server...', 'info');
+            try {
+                await window.syncEngine.triggerSync();
+                await refreshOfflinePopup();
+                refreshProductsList();
+                showToast('✅ Offline sales synchronized successfully!', 'success');
+            } catch(e) {
+                console.error('[POS] Force sync error:', e);
+                showToast('Sync error: ' + (e.message || e), 'error');
+                await refreshOfflinePopup();
+            }
         } else {
             showToast('Sync engine not ready', 'error');
         }
@@ -2631,9 +2655,10 @@ if (isset($_SESSION['error'])) {
 
         // Apply filter (Today vs All)
         const todayStr = new Date().toISOString().slice(0, 10);
+        const queueSales = allSales.filter(s => !['SYNCED', 'CANCELLED'].includes(s.status));
         const filteredSales = _offlinePopupFilter === 'today'
-            ? allSales.filter(s => (s.created_locally_at || '').slice(0, 10) === todayStr)
-            : allSales;
+            ? queueSales.filter(s => (s.created_locally_at || '').slice(0, 10) === todayStr)
+            : queueSales;
 
         // Stats calculation (on current filtered list)
         const pending  = filteredSales.filter(s => s.status === 'PENDING').length;
@@ -2687,6 +2712,8 @@ if (isset($_SESSION['error'])) {
                 </div>`).join('');
             const errorHtml = (status === 'FAILED' || status === 'CONFLICT') && sale.error_message
                 ? `<div class="osp-error-msg">⚠️ ${sale.error_message}</div>` : '';
+            const cancelButton = ['PENDING', 'FAILED', 'CONFLICT'].includes(status)
+                ? `<button class="osp-btn" style="margin-top:10px;background:#b91c1c;color:#fff" onclick="event.stopPropagation();cancelOfflineSale('${sale.sale_uuid}')">Cancel pending sale</button>` : '';
             return `
                 <div class="osp-sale-card" data-uuid="${sale.sale_uuid}" onclick="toggleSaleCard('${sale.sale_uuid}')">
                     <div class="osp-sale-top">
@@ -2709,10 +2736,23 @@ if (isset($_SESSION['error'])) {
                             &nbsp;|&nbsp; ጠቅላላ (Total): <span>${fmtETB(sale.total_amount)}</span>
                             ${(sale.change_amount > 0) ? `&nbsp;|&nbsp; መልስ (Change): <span>${fmtETB(sale.change_amount)}</span>` : ''}</div>
                         ${errorHtml}
+                        ${cancelButton}
                     </div>
                 </div>`;
         }).join('');
     }
+
+    window.cancelOfflineSale = async function(saleUUID) {
+        const reason = window.prompt('Why are you cancelling this offline sale? This reason will be sent to the admin report.');
+        if (reason === null) return;
+        if (!reason.trim()) { showToast('Cancellation reason is required.', 'error'); return; }
+        try {
+            await window.aleltuDB.cancelQueuedSaleSafely(saleUUID, reason);
+            showToast('Offline sale cancelled. The report will sync when internet returns.', 'success');
+            await refreshOfflinePopup();
+            if (navigator.onLine && window.syncEngine) window.syncEngine.triggerSync();
+        } catch (e) { showToast(e.message || 'Could not cancel this offline sale.', 'error'); }
+    };
 
     // ══════════════════════════════════════════════════════════════════
     //  REAL WiFi Signal Engine
@@ -2910,7 +2950,7 @@ if (isset($_SESSION['error'])) {
         // Step 2: Issue offline token (30-day auth for continued offline access)
         if (navigator.onLine && window.deviceManager) {
             const deviceUUID = window.deviceManager.getDeviceUUID();
-            fetch('/aleltu/api/auth/issue-offline-token.php', {
+            fetch('/aleltu/api/auth/issue-offline-token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ device_uuid: deviceUUID })

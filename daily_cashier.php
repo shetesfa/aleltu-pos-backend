@@ -701,7 +701,7 @@ if(mysqli_num_rows($all_withdrawals_list_query) > 0) {
                         <option value="last6months">ያለፉ 6 ወራት</option>
                         <option value="last9months">ያለፉ 9 ወራት</option>
                         <option value="last1year">ያለፈ 1 አመት</option>
-                        <option value="custom">ብጁ ቀን (Custom)</option>
+                        <option value="custom">Custom Date</option>
                     </select>
                 </div>
                 

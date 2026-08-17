@@ -8,8 +8,16 @@ require_once '../../config.php';
 require_once '../middleware/auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 set_time_limit(120);
 mysqli_report(MYSQLI_REPORT_OFF);
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
+    echo json_encode(['success' => false, 'code' => 'METHOD_NOT_ALLOWED', 'message' => 'POST is required for synchronization.']);
+    exit();
+}
 
 // Authenticate request
 api_require_auth();
@@ -69,6 +77,25 @@ foreach ($events as $event) {
             'code'       => 'MISSING_EVENT_UUID',
             'message'    => 'Event UUID is required for idempotency'
         ];
+        continue;
+    }
+
+    // A cancellation is an audit report only: the sale was never accepted by
+    // the server, so no server stock or completed transaction is changed.
+    if ($event_type === 'SALE_CANCELLED') {
+        $payload_json = json_encode($event);
+        $cancel_log = mysqli_prepare($conn, "INSERT INTO sync_events (event_uuid, sale_uuid, device_uuid, event_type, payload, status) VALUES (?, ?, ?, 'SALE_CANCELLED', ?, 'SYNCED') ON DUPLICATE KEY UPDATE status='SYNCED'");
+        mysqli_stmt_bind_param($cancel_log, 'ssss', $event_uuid, $sale_uuid, $device_uuid, $payload_json);
+        if (mysqli_stmt_execute($cancel_log)) {
+            mysqli_stmt_close($cancel_log);
+            $results[] = ['event_uuid' => $event_uuid, 'sale_uuid' => $sale_uuid,
+                'event_type' => 'SALE_CANCELLED', 'status' => 'SYNCED',
+                'message' => 'Cancellation report saved for administrator review'];
+        } else {
+            mysqli_stmt_close($cancel_log);
+            $results[] = ['event_uuid' => $event_uuid, 'event_type' => 'SALE_CANCELLED',
+                'status' => 'FAILED', 'code' => 'SERVER_ERROR', 'message' => 'Could not save cancellation report'];
+        }
         continue;
     }
 
@@ -203,8 +230,8 @@ foreach ($events as $event) {
             $name_to_use = ($product && !empty($product['name'])) ? $product['name'] : (!empty($item_name) ? $item_name : 'Item');
 
             // Lock inventory row FOR UPDATE (Requirement #17)
-            $inv_stmt = mysqli_prepare($conn, "SELECT id, current_stock FROM seller_inventory WHERE (item_name = ? OR id = ?) AND branch_id = ? LIMIT 1 FOR UPDATE");
-            mysqli_stmt_bind_param($inv_stmt, 'sii', $name_to_use, $item_id, $branch_id);
+            $inv_stmt = mysqli_prepare($conn, "SELECT id, current_stock FROM seller_inventory WHERE (item_name = ? OR item_name = ?) AND branch_id = ? ORDER BY current_stock DESC LIMIT 1 FOR UPDATE");
+            mysqli_stmt_bind_param($inv_stmt, 'ssi', $name_to_use, $item_name, $branch_id);
             mysqli_stmt_execute($inv_stmt);
             $inv_res = mysqli_stmt_get_result($inv_stmt);
             $inv_row = mysqli_fetch_assoc($inv_res);

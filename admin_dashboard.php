@@ -908,7 +908,7 @@ if ($bwd) { while ($row = mysqli_fetch_assoc($bwd)) { $balance_recent_withdrawal
     <div class="main-content">
         <!-- Welcome Box -->
         <div class="welcome-box" style="text-align: center;">
-            <h1>እንኳን ደህና መጣህ <?php echo htmlspecialchars($_SESSION['full_name'] ?? ''); ?></h1>
+            <h1>እንኳን ደህና መጣችሁ <?php echo htmlspecialchars($_SESSION['full_name'] ?? ''); ?></h1>
             <p>የአሌልቱ መቆጣጠሪያ - <i class="fas fa-store"></i> <?php echo htmlspecialchars($current_branch_name); ?></p>
         </div>
         
@@ -941,7 +941,7 @@ if ($bwd) { while ($row = mysqli_fetch_assoc($bwd)) { $balance_recent_withdrawal
             <div class="stat-card transactions">
                 <h3>ያለቁ ሽያጮች</h3>
                 <div class="number"><?php echo $stats['total_transactions'] ?? 0; ?></div>
-                <p>ተፈጽመዋል</p>
+                <p>ተስተናግደዋል</p>
             </div>
             
             <div class="stat-card sellers">
@@ -1076,6 +1076,10 @@ if ($bwd) { while ($row = mysqli_fetch_assoc($bwd)) { $balance_recent_withdrawal
                 </a>
                
                 
+                <a href="conflict_center.php" class="action-card" style="border-top-color: #ef4444; background: #fff5f5;">
+                    <i class="fas fa-exclamation-triangle" style="color: #ef4444;"></i>
+                    <h3>Offline Conflicts &amp; Cancellation Reports</h3>
+                </a>
                 <a href="offline_controller.php" class="action-card" style="border-top-color: #10b981; background: #f0fdf4;">
                     <i class="fas fa-wifi" style="color: #10b981;"></i>
                     <h3>⚙️ Offline Rules</h3>

@@ -10,6 +10,10 @@ Options -MultiViews
     # If the browser requests a URL that ends in .php, redirect it to the
     # same URL without .php (301 = permanent, browsers remember it).
     # This is what makes the address bar always show clean URLs.
+    # Redirect only navigations. Redirecting a POST changes it into a GET in
+    # browsers, which breaks every JSON/form endpoint with "Invalid request
+    # method" and leaves offline events stuck pending.
+    RewriteCond %{REQUEST_METHOD} ^(?:GET|HEAD)$ [NC]
     RewriteCond %{THE_REQUEST} \s/+(.+?)\.php[\s?] [NC]
     RewriteRule ^ /%1 [R=301,L,NE]
 

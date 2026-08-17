@@ -18,14 +18,14 @@
             transition: transform .42s cubic-bezier(.34,1.56,.64,1);
             display: flex; align-items: center;
             justify-content: space-between;
-            padding: 10px 18px; gap: 14px; flex-wrap: wrap;
+            padding: 5px 12px; gap: 8px; flex-wrap: nowrap;
             font-family: 'Segoe UI',Tahoma,sans-serif;
         }
         #aleltu-offline-banner.aob-visible { transform: translateY(0); }
 
         /* ── pulsing WiFi-off icon ── */
-        .aob-wifi-wrap { position:relative; width:44px; height:44px; flex-shrink:0; }
-        .aob-wifi-wrap svg { width:44px;height:44px;
+        .aob-wifi-wrap { position:relative; width:30px; height:30px; flex-shrink:0; }
+        .aob-wifi-wrap svg { width:30px;height:30px;
             animation: aob-pulse 2s ease-in-out infinite; }
         @keyframes aob-pulse {
             0%,100%{ opacity:1; transform:scale(1); }
@@ -34,9 +34,9 @@
         }
         .aob-ring {
             position:absolute; top:50%; left:50%;
-            width:44px; height:44px; border-radius:50%;
+            width:30px; height:30px; border-radius:50%;
             border:2px solid rgba(239,68,68,.65);
-            margin:-22px 0 0 -22px;
+            margin:-15px 0 0 -15px;
             animation: aob-ring 2s ease-out infinite;
             pointer-events:none;
         }
@@ -48,9 +48,9 @@
         }
 
         /* ── text ── */
-        .aob-text { flex:1; min-width:180px; }
-        .aob-title { font-size:15px;font-weight:700;color:#fca5a5;margin-bottom:2px; }
-        .aob-sub   { font-size:12px;color:#94a3b8;line-height:1.5; }
+        .aob-text { flex:1; min-width:0; }
+        .aob-title { font-size:13px;font-weight:700;color:#fca5a5;margin-bottom:0; }
+        .aob-sub   { font-size:11px;color:#94a3b8;line-height:1.25; }
         .aob-count {
             display:inline-block;
             background:rgba(239,68,68,.22);color:#fca5a5;font-weight:700;
@@ -69,8 +69,8 @@
         #aob-view-btn {
             background:rgba(239,68,68,.15);
             border:1.5px solid rgba(239,68,68,.5);
-            color:#fca5a5;padding:8px 16px;border-radius:20px;
-            font-size:12px;font-weight:600;cursor:pointer;
+            color:#fca5a5;padding:5px 10px;border-radius:16px;
+            font-size:11px;font-weight:600;cursor:pointer;
             transition:all .2s;white-space:nowrap;flex-shrink:0;
         }
         #aob-view-btn:hover {
@@ -104,8 +104,8 @@
         .aob-online-glow { animation:aob-glow .85s ease 1 !important; }
 
         /* ── body offset when banner visible ── */
-        body.aob-mode { padding-top: 62px !important; }
-        body.aob-mode .container { height:calc(100vh - 62px) !important; }
+        body.aob-mode { padding-top: 44px !important; }
+        body.aob-mode .container { height:calc(100vh - 44px) !important; }
     `;
     document.head.appendChild(style);
 

@@ -8,9 +8,10 @@ class SyncEngine {
         this.isSyncing = false;
         this.syncInterval = null;
         this.listeners = [];
-        this.BATCH_API     = 'api/sync/batch.php';
-        this.SNAPSHOT_API  = 'api/sync/inventory-snapshot.php';
-        this.TOKEN_API     = 'api/auth/issue-offline-token.php';
+        // Clean endpoints avoid old browser-cached .php redirect responses.
+        this.BATCH_API     = 'api/sync/batch';
+        this.SNAPSHOT_API  = 'api/sync/inventory-snapshot';
+        this.TOKEN_API     = 'api/auth/issue-offline-token';
         this.VERSION_KEY   = 'aleltu_inventory_version';
         this.TOKEN_KEY     = 'aleltu_offline_token';
         this.init();
@@ -52,6 +53,7 @@ class SyncEngine {
             isOnline: navigator.onLine,
             isSyncing: this.isSyncing,
             pending: stats.pending,
+            pendingReports: stats.pendingReports,
             conflicts: stats.conflicts,
             synced: stats.synced,
             total: stats.total
@@ -108,6 +110,7 @@ class SyncEngine {
             const response = await fetch(this.BATCH_API, {
                 method: 'POST',
                 headers: this._getAuthHeaders(),
+                credentials: 'same-origin',
                 body: JSON.stringify(batchPayload)
             });
 
@@ -117,8 +120,9 @@ class SyncEngine {
             const data = await response.json();
             if (data && data.results && Array.isArray(data.results)) {
                 for (const res of data.results) {
-                    if (res.status === 'SYNCED' || (res.code === 'ALREADY_PROCESSED')) {
-                        await window.outboxManager.recordSyncSuccess(res.event_uuid, res.sale_uuid);
+                    if (res.status === 'SYNCED' || res.status === 'ALREADY_PROCESSED' || res.code === 'ALREADY_PROCESSED') {
+                        await window.outboxManager.recordSyncSuccess(res.event_uuid,
+                            res.event_type === 'SALE_CANCELLED' ? null : res.sale_uuid);
                     } else if (res.status === 'CONFLICT') {
                         await window.aleltuDB.markEventFailed(res.event_uuid, 'CONFLICT', res.message || 'Conflict');
                     } else {

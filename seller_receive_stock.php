@@ -316,7 +316,7 @@ if (isset($_GET['export_excel']) && $_GET['export_excel'] == '1') {
             echo '</tr>';
         }
     } else {
-        echo '<tr><td colspan="9" style="text-align:center;">ምንም ውሂብ አልተገኘም</td></tr>';
+        echo '<tr><td colspan="9" style="text-align:center;">ምንም data አልተገኘም</td></tr>';
     }
     
     echo '</table></body></html>';
@@ -376,35 +376,42 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_stock'])) {
             }
         }
         
-        $branch_condition = $has_branch_id ? "AND branch_id = $branch_id" : "";
-        
-        // FIXED: Stock is ONE shared pot per item per branch, not one pot per
-        // seller. We no longer look for "this seller's row" — we look for
-        // "the branch's row for this item" and add to it. $target_seller_id /
-        // $target_seller_name are still recorded below in stock_logs so you
-        // always know WHO physically brought the stock in — that history is
-        // not lost, it's just no longer used to split the stock number itself.
-        $check_item = mysqli_query($conn, "SELECT * FROM seller_inventory WHERE $item_column = '$item_name' $branch_condition LIMIT 1");
-        if ($check_item && mysqli_num_rows($check_item) > 0) {
-            // Existing shared row found -> just add to it (LIMIT 1 so this can
-            // never touch more than one row, even if old duplicate rows still
-            // exist from before this fix).
-            $inventory_query = "UPDATE seller_inventory SET current_stock = current_stock + '$quantity', unit = '$unit', last_updated = NOW() WHERE $item_column = '$item_name' $branch_condition LIMIT 1";
+        // Check existing shared row with prepared statement
+        if ($has_branch_id) {
+            $stmt_check = mysqli_prepare($conn, "SELECT id FROM seller_inventory WHERE `$item_column` = ? AND branch_id = ? LIMIT 1");
+            mysqli_stmt_bind_param($stmt_check, 'si', $item_name, $branch_id);
         } else {
-            // No row for this item in this branch yet -> create ONE shared row.
-            // seller_id = 0 marks it as branch-level/shared, not owned by one seller.
-            if ($has_seller_id && $has_branch_id) {
-                $inventory_query = "INSERT INTO seller_inventory (seller_id, $item_column, current_stock, unit, last_updated, branch_id) VALUES (0, '$item_name', '$quantity', '$unit', NOW(), $branch_id)";
-            } elseif ($has_seller_id) {
-                $inventory_query = "INSERT INTO seller_inventory (seller_id, $item_column, current_stock, unit, last_updated) VALUES (0, '$item_name', '$quantity', '$unit', NOW())";
-            } elseif ($has_branch_id) {
-                $inventory_query = "INSERT INTO seller_inventory ($item_column, current_stock, unit, last_updated, branch_id) VALUES ('$item_name', '$quantity', '$unit', NOW(), $branch_id)";
-            } else {
-                $inventory_query = "INSERT INTO seller_inventory ($item_column, current_stock, unit, last_updated) VALUES ('$item_name', '$quantity', '$unit', NOW())";
-            }
+            $stmt_check = mysqli_prepare($conn, "SELECT id FROM seller_inventory WHERE `$item_column` = ? LIMIT 1");
+            mysqli_stmt_bind_param($stmt_check, 's', $item_name);
         }
-        
-        $inventory_success = mysqli_query($conn, $inventory_query);
+        mysqli_stmt_execute($stmt_check);
+        $res_check = mysqli_stmt_get_result($stmt_check);
+        $existing_row = ($res_check && mysqli_num_rows($res_check) > 0) ? mysqli_fetch_assoc($res_check) : null;
+        mysqli_stmt_close($stmt_check);
+
+        if ($existing_row) {
+            $existing_id = (int)$existing_row['id'];
+            $upd_stmt = mysqli_prepare($conn, "UPDATE seller_inventory SET current_stock = current_stock + ?, unit = ?, last_updated = NOW() WHERE id = ? LIMIT 1");
+            mysqli_stmt_bind_param($upd_stmt, 'dsi', $quantity, $unit, $existing_id);
+            $inventory_success = mysqli_stmt_execute($upd_stmt);
+            mysqli_stmt_close($upd_stmt);
+        } else {
+            if ($has_seller_id && $has_branch_id) {
+                $ins_stmt = mysqli_prepare($conn, "INSERT INTO seller_inventory (seller_id, `$item_column`, current_stock, unit, last_updated, branch_id) VALUES (0, ?, ?, ?, NOW(), ?)");
+                mysqli_stmt_bind_param($ins_stmt, 'sdsi', $item_name, $quantity, $unit, $branch_id);
+            } elseif ($has_seller_id) {
+                $ins_stmt = mysqli_prepare($conn, "INSERT INTO seller_inventory (seller_id, `$item_column`, current_stock, unit, last_updated) VALUES (0, ?, ?, ?, NOW())");
+                mysqli_stmt_bind_param($ins_stmt, 'sds', $item_name, $quantity, $unit);
+            } elseif ($has_branch_id) {
+                $ins_stmt = mysqli_prepare($conn, "INSERT INTO seller_inventory (`$item_column`, current_stock, unit, last_updated, branch_id) VALUES (?, ?, ?, NOW(), ?)");
+                mysqli_stmt_bind_param($ins_stmt, 'sdsi', $item_name, $quantity, $unit, $branch_id);
+            } else {
+                $ins_stmt = mysqli_prepare($conn, "INSERT INTO seller_inventory (`$item_column`, current_stock, unit, last_updated) VALUES (?, ?, ?, NOW())");
+                mysqli_stmt_bind_param($ins_stmt, 'sds', $item_name, $quantity, $unit);
+            }
+            $inventory_success = mysqli_stmt_execute($ins_stmt);
+            mysqli_stmt_close($ins_stmt);
+        }
     }
     
     if ($stock_logs_exists && $inventory_success) {
@@ -420,17 +427,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_stock'])) {
         }
         
         if ($logs_has_branch && $logs_has_ethiopian_date) {
-            $log_query = "INSERT INTO stock_logs (seller_id, seller_name, item_name, quantity, unit, source, added_by, date_added, ethiopian_date, notes, branch_id) 
-                         VALUES ('$target_seller_id', '$target_seller_name', '$item_name', '$quantity', '$unit', '$source', '$user_name', NOW(), '$ethiopian_date', '$notes', $branch_id)";
+            $log_stmt = mysqli_prepare($conn, "INSERT INTO stock_logs (seller_id, seller_name, item_name, quantity, unit, source, added_by, date_added, ethiopian_date, notes, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)");
+            mysqli_stmt_bind_param($log_stmt, 'issdsssssi', $target_seller_id, $target_seller_name, $item_name, $quantity, $unit, $source, $user_name, $ethiopian_date, $notes, $branch_id);
         } elseif ($logs_has_branch) {
-            $log_query = "INSERT INTO stock_logs (seller_id, seller_name, item_name, quantity, unit, source, added_by, date_added, notes, branch_id) 
-                         VALUES ('$target_seller_id', '$target_seller_name', '$item_name', '$quantity', '$unit', '$source', '$user_name', NOW(), '$notes', $branch_id)";
+            $log_stmt = mysqli_prepare($conn, "INSERT INTO stock_logs (seller_id, seller_name, item_name, quantity, unit, source, added_by, date_added, notes, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)");
+            mysqli_stmt_bind_param($log_stmt, 'issdssssi', $target_seller_id, $target_seller_name, $item_name, $quantity, $unit, $source, $user_name, $notes, $branch_id);
         } else {
-            $log_query = "INSERT INTO stock_logs (seller_id, seller_name, item_name, quantity, unit, source, added_by, date_added, notes) 
-                         VALUES ('$target_seller_id', '$target_seller_name', '$item_name', '$quantity', '$unit', '$source', '$user_name', NOW(), '$notes')";
+            $log_stmt = mysqli_prepare($conn, "INSERT INTO stock_logs (seller_id, seller_name, item_name, quantity, unit, source, added_by, date_added, notes) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)");
+            mysqli_stmt_bind_param($log_stmt, 'issdssss', $target_seller_id, $target_seller_name, $item_name, $quantity, $unit, $source, $user_name, $notes);
         }
         
-        $log_success = mysqli_query($conn, $log_query);
+        $log_success = mysqli_stmt_execute($log_stmt);
+        mysqli_stmt_close($log_stmt);
         
         if ($log_success) {
             $_SESSION['message'] = "✅ ምርት በተሳካ ሁኔታ ተመዝግቧል!";
@@ -1263,7 +1271,7 @@ if ($inventory_exists) {
         <?php endif; ?>
         
         <?php if(!$stock_logs_exists || !$inventory_exists): ?>
-            <div class="warning-box"><i class="fas fa-exclamation-triangle"></i> <strong>የውሂብ ጎታ ችግር:</strong> አንዳንድ ሠንጠረዦች አልተገኙም</div>
+            <div class="warning-box"><i class="fas fa-exclamation-triangle"></i> <strong>Database Error:</strong> አንዳንድ ሠንጠረዦች አልተገኙም</div>
         <?php endif; ?>
         
         <div class="dashboard-content">
@@ -1370,7 +1378,7 @@ if ($inventory_exists) {
                     <div id="loadMoreContainer" style="text-align: center;"></div>
                 </div>
                 <?php else: ?>
-                    <div class="empty-state"><i class="fas fa-database"></i><h3>የውሂብ ጎታ ችግር</h3></div>
+                    <div class="empty-state"><i class="fas fa-database"></i><h3>Database Error</h3></div>
                 <?php endif; ?>
             </div>
         </div>
@@ -1392,7 +1400,7 @@ if ($inventory_exists) {
                         <option value="yesterday">ትናንት</option>
                         <option value="last7days">ያለፉ 7 ቀናት</option>
                         <option value="last30days">ያለፉ 30 ቀናት</option>
-                        <option value="custom">ብጁ ቀን</option>
+                        <option value="custom">Custom Date</option>
                     </select>
                 </div>
                 <div id="exportCustomDateRange" class="export-custom-date" style="display: none;">
