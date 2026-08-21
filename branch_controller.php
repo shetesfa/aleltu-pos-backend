@@ -116,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_branch'])) {
     } else {
         mysqli_begin_transaction($conn);
         try {
-            foreach (['products', 'excel_data', 'seller_inventory', 'stock_logs', 'transactions', 'boss_daily', 'boss_sessions', 'boss_transactions'] as $table) {
+            foreach (['products', 'excel_data', 'seller_inventory', 'stock_logs', 'transaction_items', 'transactions', 'boss_daily', 'boss_sessions', 'boss_transactions'] as $table) {
                 $stmt = mysqli_prepare($conn, "DELETE FROM {$table} WHERE branch_id = ?");
                 mysqli_stmt_bind_param($stmt, 'i', $id);
                 if (!mysqli_stmt_execute($stmt)) {

@@ -31,14 +31,11 @@ $items_result = mysqli_query($conn, $items_query);
 // is intentionally disabled below instead of crashing on a table that doesn't exist.
 $locations_result = null;
 
-// Build WHERE clause with branch filter — item_name via prepared statement bind value
-$where      = "WHERE t.branch_id = $current_branch_id";
-$bind_types  = '';
-$bind_values = [];
+// Build WHERE clause with branch filter
+$where = "WHERE t.branch_id = $current_branch_id";
 if (!empty($item_name)) {
-    $where      .= " AND ti.product_name LIKE ?";
-    $bind_types  .= 's';
-    $bind_values[] = '%' . $item_name . '%';
+    $safe_item_name = mysqli_real_escape_string($conn, $item_name);
+    $where .= " AND ti.product_name LIKE '%$safe_item_name%'";
 }
 // NOTE: "location_id" does not exist on the transactions table, so this
 // filter cannot be applied at the database level. $location_filter is kept
@@ -424,9 +421,9 @@ $summary = mysqli_fetch_assoc($summary_result);
             
             <!-- Export Button -->
             <div style="text-align:center;margin-top:20px;">
-                <button onclick="exportItemReport()" style="background:#9b59b6;color:white;padding:12px 25px;border:none;border-radius:5px;cursor:pointer;font-size:16px;">
-                    📊 Export Item Report
-                </button>
+                <a href="export_item_report.php?item=<?php echo urlencode($item_name); ?>&date_from=<?php echo urlencode($date_from); ?>&date_to=<?php echo urlencode($date_to); ?>&branch_id=<?php echo $current_branch_id; ?>" style="background:#9b59b6;color:white;padding:12px 25px;border:none;border-radius:6px;cursor:pointer;font-size:16px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;font-weight:bold;">
+                    📊 Export Item Report (.xlsx)
+                </a>
             </div>
         <?php else: ?>
             <div class="no-data">
@@ -440,25 +437,6 @@ $summary = mysqli_fetch_assoc($summary_result);
             <p>Try searching for "Coffee" or select a specific location</p>
         </div>
     <?php endif; ?>
-
-    <script>
-        function exportItemReport() {
-            let item = "<?php echo $item_name; ?>";
-            let location = <?php echo $location_filter; ?>;
-            let date_from = "<?php echo $date_from; ?>";
-            let date_to = "<?php echo $date_to; ?>";
-            let branch = <?php echo $current_branch_id; ?>;
-            
-            let url = 'export_item_report.php?' +
-                      'item=' + encodeURIComponent(item) +
-                      '&location=' + location +
-                      '&date_from=' + date_from +
-                      '&date_to=' + date_to +
-                      '&branch_id=' + branch;
-            
-            window.open(url, '_blank');
-        }
-    </script>
 </body>
 </html>
 <?php mysqli_close($conn); ?>

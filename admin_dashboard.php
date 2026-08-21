@@ -21,8 +21,9 @@ loadReadOnlyFlag($conn, $_SESSION['user_id']);
 $excluded_user_ids = [3]; // Only hide user ID 3 (owner)
 
 // Get branch info
+$user_role = $_SESSION['role'] ?? 'admin';
 $user_branch = getUserBranch($conn, $_SESSION['user_id']);
-$current_branch_id = getCurrentBranchId($conn, $_SESSION['user_id'], $_SESSION['role']);
+$current_branch_id = getCurrentBranchId($conn, $_SESSION['user_id'], $user_role);
 $current_branch_name = getCurrentBranchName($conn, $current_branch_id);
 if ($current_branch_id <= 0 && $user_role != 'super_admin') {
     die("Dashboard error: No branch access.");

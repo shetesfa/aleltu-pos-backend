@@ -76,9 +76,7 @@ function getEthiopianDate($gregorian_date = null) {
 }
 
 function get_ethiopian_time() {
-    $timestamp = time();
-    $eth_timestamp = $timestamp + (3 * 3600);
-    return date('h:i A', $eth_timestamp);
+    return date('h:i A');
 }
 
 $today_ethiopian = getEthiopianDate();

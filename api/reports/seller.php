@@ -37,14 +37,14 @@ while ($r = mysqli_fetch_assoc($res)) $sellers[] = $r;
 
 // Top products per seller (top 5 overall)
 $stmt2 = mysqli_prepare($conn, "SELECT
-    ti.item_name,
+    ti.product_name,
     SUM(ti.quantity) as total_qty,
     SUM(ti.quantity * ti.unit_price) as total_revenue,
     COUNT(DISTINCT ti.transaction_id) as num_transactions
   FROM transaction_items ti
   JOIN transactions t ON t.id = ti.transaction_id
   WHERE t.branch_id = ? AND DATE(t.transaction_date) BETWEEN ? AND ?
-  GROUP BY ti.item_name
+  GROUP BY ti.product_name
   ORDER BY total_revenue DESC LIMIT 10");
 mysqli_stmt_bind_param($stmt2, 'iss', $branch_id, $date_from, $date_to);
 mysqli_stmt_execute($stmt2);

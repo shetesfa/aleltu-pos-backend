@@ -8,10 +8,10 @@ class SyncEngine {
         this.isSyncing = false;
         this.syncInterval = null;
         this.listeners = [];
-        // Clean endpoints avoid old browser-cached .php redirect responses.
-        this.BATCH_API     = 'api/sync/batch';
-        this.SNAPSHOT_API  = 'api/sync/inventory-snapshot';
-        this.TOKEN_API     = 'api/auth/issue-offline-token';
+        // Direct endpoints guarantee reliability on all hosts (InfinityFree, Apache, cPanel, Nginx)
+        this.BATCH_API     = 'api/sync/batch.php';
+        this.SNAPSHOT_API  = 'api/sync/inventory-snapshot.php';
+        this.TOKEN_API     = 'api/auth/issue-offline-token.php';
         this.VERSION_KEY   = 'aleltu_inventory_version';
         this.TOKEN_KEY     = 'aleltu_offline_token';
         this.init();

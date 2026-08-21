@@ -179,16 +179,26 @@ display: flex;
             <thead><tr><th>ቀን / ሰዓት</th><th>ሻጭ</th><th>ምርቶች</th><th>ጠቅላላ</th><th>የመሰረዝ ምክንያት</th><th>የሽያጭ መለያ</th></tr></thead>
             <tbody>
             <?php if (empty($cancel_reports)): ?>
-                <tr><td colspan="6" style="text-align:center;color:#94a3b8;">እስካሁን የተሰረዘ ኦፍላይን ሽያጭ ሪፖርት የለም።</td></tr>
+                <tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">እስካሁን የተሰረዘ ኦፍላይን ሽያጭ ሪፖርት የለም።</td></tr>
             <?php else: foreach ($cancel_reports as $report): ?>
-                <?php $product_names = array_map(fn($item) => ($item['product_name'] ?? 'Product') . ' × ' . number_format((float)($item['quantity'] ?? 0), 2), $report['items']); ?>
+                <?php 
+                    $raw_dt = $report['server_received_at'] ?? date('Y-m-d H:i:s');
+                    $eth_date = getEthiopianDate($raw_dt);
+                    $eth_time = get_ethiopian_time_display($raw_dt);
+                    $product_names = array_map(function($item) {
+                        $pName = !empty($item['product_name']) ? $item['product_name'] : (!empty($item['name']) ? $item['name'] : 'Product');
+                        $qty = floatval($item['quantity'] ?? 0);
+                        $qtyStr = ($qty == (int)$qty) ? number_format($qty, 0) : number_format($qty, 2);
+                        return $pName . ' × ' . $qtyStr;
+                    }, $report['items']); 
+                ?>
                 <tr>
-                    <td><?= htmlspecialchars($report['server_received_at'] ?? '') ?></td>
-                    <td><?= htmlspecialchars($report['seller_name']) ?></td>
+                    <td><strong><?= htmlspecialchars($eth_date['formatted']) ?></strong> <span style="color:#94a3b8;font-size:12px;"><?= htmlspecialchars($eth_time) ?></span></td>
+                    <td><i class="fas fa-user" style="color:#8b5cf6;margin-right:4px;"></i><?= htmlspecialchars($report['seller_name']) ?></td>
                     <td><?= htmlspecialchars(implode(', ', $product_names)) ?></td>
-                    <td><?= number_format((float)$report['total_amount'], 2) ?> ETB</td>
-                    <td><?= htmlspecialchars($report['cancel_reason']) ?></td>
-                    <td><small><?= htmlspecialchars(substr($report['sale_uuid'] ?? '', 0, 12)) ?>...</small></td>
+                    <td><strong style="color:#10b981;"><?= number_format((float)$report['total_amount'], 2) ?> ETB</strong></td>
+                    <td><span class="badge badge-danger" style="display:inline-block;padding:4px 8px;border-radius:4px;font-size:12px;"><?= htmlspecialchars($report['cancel_reason']) ?></span></td>
+                    <td><small style="font-family:monospace;color:#94a3b8;"><?= htmlspecialchars(substr($report['sale_uuid'] ?? '', 0, 12)) ?>...</small></td>
                 </tr>
             <?php endforeach; endif; ?>
             </tbody>

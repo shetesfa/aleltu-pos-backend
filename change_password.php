@@ -79,7 +79,7 @@ if (!validateCsrfToken($_POST['csrf_token'] ?? null)) {
                             $redirect_url = 'daily_cashier.php';
                             break;
                         case 'boss':
-                            $redirect_url = 'boss.php';
+                            $redirect_url = 'boss_receive.php';
                             break;
                         default:
                             $redirect_url = 'seller_pos.php';

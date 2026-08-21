@@ -2031,9 +2031,8 @@ if (isset($_SESSION['error'])) {
             formData.append('sale_uuid', saleUUID);
 
             try {
-                // Use the application-root URL so a cached/offline page opened
-                // from another route cannot post to the wrong relative endpoint.
-                const res = await fetch('/aleltu/save_transaction', {
+                // Relative URL so it functions seamlessly on both local XAMPP (/aleltu/) and live servers (Render/InfinityFree root)
+                const res = await fetch('save_transaction.php', {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Accept': 'application/json' },
@@ -2713,7 +2712,7 @@ if (isset($_SESSION['error'])) {
             const errorHtml = (status === 'FAILED' || status === 'CONFLICT') && sale.error_message
                 ? `<div class="osp-error-msg">⚠️ ${sale.error_message}</div>` : '';
             const cancelButton = ['PENDING', 'FAILED', 'CONFLICT'].includes(status)
-                ? `<button class="osp-btn" style="margin-top:10px;background:#b91c1c;color:#fff" onclick="event.stopPropagation();cancelOfflineSale('${sale.sale_uuid}')">Cancel pending sale</button>` : '';
+                ? `<button class="osp-btn" style="margin-top:10px;background:#b91c1c;color:#fff;display:inline-flex;align-items:center;gap:6px;" onclick="event.stopPropagation();cancelOfflineSale('${sale.sale_uuid}')"><i class="fas fa-trash-alt"></i> ሽያጩን ሰርዝ (Cancel sale)</button>` : '';
             return `
                 <div class="osp-sale-card" data-uuid="${sale.sale_uuid}" onclick="toggleSaleCard('${sale.sale_uuid}')">
                     <div class="osp-sale-top">
@@ -2743,15 +2742,16 @@ if (isset($_SESSION['error'])) {
     }
 
     window.cancelOfflineSale = async function(saleUUID) {
-        const reason = window.prompt('Why are you cancelling this offline sale? This reason will be sent to the admin report.');
+        const reason = window.prompt('ይህንን ኦፍላይን ሽያጭ ለምን መሰረዝ ፈለጉ? ምክንያቱን ያስገቡ:\nWhy are you cancelling this offline sale? Enter cancellation reason:');
         if (reason === null) return;
-        if (!reason.trim()) { showToast('Cancellation reason is required.', 'error'); return; }
+        if (!reason.trim()) { showToast('የመሰረዝ ምክንያት ማስገባት ግዴታ ነው (Cancellation reason is required).', 'error'); return; }
         try {
-            await window.aleltuDB.cancelQueuedSaleSafely(saleUUID, reason);
-            showToast('Offline sale cancelled. The report will sync when internet returns.', 'success');
+            await window.aleltuDB.cancelQueuedSaleSafely(saleUUID, reason.trim());
+            showToast('ኦፍላይን ሽያጩ ተሰርዟል! ሪፖርቱ ኢንተርኔት ሲኖር ወደ ሰርቨር ይላካል። (Offline sale cancelled.)', 'success');
             await refreshOfflinePopup();
+            refreshProductsList();
             if (navigator.onLine && window.syncEngine) window.syncEngine.triggerSync();
-        } catch (e) { showToast(e.message || 'Could not cancel this offline sale.', 'error'); }
+        } catch (e) { showToast(e.message || 'ሽያጩን መሰረዝ አልተቻለም።', 'error'); }
     };
 
     // ══════════════════════════════════════════════════════════════════
@@ -2950,7 +2950,7 @@ if (isset($_SESSION['error'])) {
         // Step 2: Issue offline token (30-day auth for continued offline access)
         if (navigator.onLine && window.deviceManager) {
             const deviceUUID = window.deviceManager.getDeviceUUID();
-            fetch('/aleltu/api/auth/issue-offline-token', {
+            fetch('api/auth/issue-offline-token.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ device_uuid: deviceUUID })
@@ -2979,7 +2979,7 @@ if (isset($_SESSION['error'])) {
                 }
             } catch(e) {}
         }
-        fetch('/aleltu/api/offline-rules/get.php?branch_id=' + branchId, { headers: rulesHeaders })
+        fetch('api/offline-rules/get.php?branch_id=' + branchId, { headers: rulesHeaders })
             .then(res => res.json())
             .then(data => {
                 if (data && data.rules && window.offlineRulesEngine) {
@@ -3038,7 +3038,7 @@ if (isset($_SESSION['error'])) {
     // ── Register Service Worker (with proper error handling) ──────────
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/aleltu/service-worker.js', { scope: '/aleltu/' })
+            navigator.serviceWorker.register('service-worker.js')
                 .then(reg => {
                     console.log('[SW] Registered, scope:', reg.scope);
                     // Check for updates every 60s

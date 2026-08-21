@@ -208,8 +208,16 @@ $today_display = $today_eth['formatted'];
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             -webkit-tap-highlight-color: transparent;
+        }
+
+        body, input, select, button, textarea {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        .fa, .fas, .far, .fal, .fad, .fab, [class*="fa-"] {
+            font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands", "FontAwesome" !important;
+            font-style: normal;
         }
 
         body {

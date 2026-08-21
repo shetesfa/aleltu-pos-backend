@@ -41,7 +41,8 @@ if(!empty($date_to)) {
     $where .= " AND DATE(t.transaction_date) <= '$date_to'";
 }
 if(!empty($payment_filter)) {
-    $where .= " AND t.payment_method = '$payment_filter'";
+    $safe_payment = mysqli_real_escape_string($conn, $payment_filter);
+    $where .= " AND t.payment_method = '$safe_payment'";
 }
 
 // Get all transactions with pagination (LIMIT prevents loading all 10,000+ rows at once)
@@ -337,6 +338,201 @@ $total_amount = $total_row['total'] ?? 0;
         <tfoot>
             <tr class="total-row">
                 <td colspan="4">TOTAL:</td>
+            border-radius: 5px;
+            min-height: 44px;
+        }
+        
+        .filter-btn, .reset-btn {
+            padding: 12px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            min-height: 44px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            flex: 1;
+            min-width: 100%;
+        }
+
+        .filter-btn {
+            background: #27ae60;
+            color: white;
+            border: none;
+        }
+        
+        .reset-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            text-decoration: none;
+        }
+        
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            border-radius: 10px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: block;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        
+        th {
+            background: #2c3e50;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .total-row {
+            background: #27ae60;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .delete-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+            min-height: 44px;
+        }
+        
+        .pagination {
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .page-btn {
+            background: #3498db;
+            color: white;
+            padding: 12px 15px;
+            text-decoration: none;
+            margin: 5px;
+            border-radius: 5px;
+            display: inline-block;
+            min-height: 44px;
+        }
+
+        /* Responsive Breakpoints */
+        @media(min-width: 600px) {
+            body { padding: 20px; }
+            .header { padding: 20px; }
+            .filter-row { flex-direction: row; flex-wrap: wrap; }
+            .filter-group { flex: 1; min-width: 200px; }
+            .filter-btn, .reset-btn { min-width: auto; flex: none; }
+            th { padding: 15px; }
+            td { padding: 12px 15px; }
+            .total-row { font-size: 18px; }
+            .delete-btn { padding: 5px 10px; min-height: auto; }
+        }
+
+        @media(min-width: 900px) {
+            table { display: table; white-space: normal; overflow-x: visible; }
+        }
+    </style>
+</head>
+<body>
+    <a href="admin_dashboard.php" class="back-btn">← Back to Dashboard</a>
+    
+    <div class="header">
+        <h1>📋 All Transactions</h1>
+        <p>View and filter all transactions</p>
+        <div class="branch-badge">
+            <i class="fas fa-store"></i> <?php echo htmlspecialchars($current_branch_name); ?>
+        </div>
+    </div>
+    
+    <!-- Filter Form -->
+    <form method="GET" action="" class="filter-form">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label>Location:</label>
+                <select name="location">
+                    <option value="0">All Locations</option>
+                    <!-- locations filter removed - table does not exist -->
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label>Date From:</label>
+                <input type="date" name="date_from" value="<?php echo $date_from; ?>">
+            </div>
+            
+            <div class="filter-group">
+                <label>Date To:</label>
+                <input type="date" name="date_to" value="<?php echo $date_to; ?>">
+            </div>
+            
+            <div class="filter-group">
+                <label>Payment Method:</label>
+                <select name="payment">
+                    <option value="">All Methods</option>
+                    <?php while($pay = mysqli_fetch_assoc($payment_result)): ?>
+                        <option value="<?php echo $pay['payment_method']; ?>" <?php echo $payment_filter == $pay['payment_method'] ? 'selected' : ''; ?>>
+                            <?php echo $pay['payment_method']; ?>
+                        </option>
+                    <?php endwhile; ?>
+                </select>
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" class="filter-btn">🔍 Apply Filter</button>
+            <a href="all_transactions.php" class="reset-btn">🔄 Reset Filter</a>
+        </div>
+    </form>
+    
+    <!-- Results -->
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Date & Time</th>
+                <th>Seller</th>
+                <th>Total</th>
+                <th>Paid</th>
+                <th>Change</th>
+                <th>Payment</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if(mysqli_num_rows($result) > 0): ?>
+                <?php while($row = mysqli_fetch_assoc($result)): ?>
+                <tr>
+                    <td>#<?php echo $row['id']; ?></td>
+                    <td><?php echo date('Y-m-d H:i', strtotime($row['transaction_date'])); ?></td>
+                    <td><?php echo htmlspecialchars($row['seller_name'] ?? 'N/A'); ?></td>
+                    <td style="font-weight:bold;color:#27ae60;"><?php echo number_format($row['total_amount'], 2); ?> ETB</td>
+                    <td><?php echo number_format($row['paid_amount'], 2); ?> ETB</td>
+                    <td><?php echo number_format($row['change_amount'], 2); ?> ETB</td>
+                    <td><span style="background:#e3f2fd;padding:5px 10px;border-radius:15px;"><?php echo $row['payment_method']; ?></span></td>
+                    <td>
+                        <button class="delete-btn" onclick="deleteTransaction(<?php echo $row['id']; ?>)">Delete</button>
+                    </td>
+                </tr>
+                <?php endwhile; ?>
+            <?php else: ?>
+                <tr>
+                    <td colspan="9" style="text-align:center;padding:40px;color:#999;">No transactions found</td>
+                </tr>
+            <?php endif; ?>
+        </tbody>
+        <tfoot>
+            <tr class="total-row">
+                <td colspan="4">TOTAL:</td>
                 <td colspan="5"><?php echo number_format($total_amount, 2); ?> ETB</td>
             </tr>
         </tfoot>
@@ -344,9 +540,9 @@ $total_amount = $total_row['total'] ?? 0;
     
     <!-- Export Button -->
     <div style="text-align:center;margin-top:20px;">
-        <button onclick="exportToExcel()" style="background:#27ae60;color:white;padding:12px 25px;border:none;border-radius:5px;cursor:pointer;font-size:16px;">
-            📊 Export to Excel
-        </button>
+        <a href="export_all_transactions.php?branch_id=<?php echo $branch_id; ?>&date_from=<?php echo urlencode($date_from); ?>&date_to=<?php echo urlencode($date_to); ?>&payment=<?php echo urlencode($payment_filter); ?>" style="background:#27ae60;color:white;padding:12px 25px;border:none;border-radius:6px;cursor:pointer;font-size:16px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;font-weight:bold;">
+            📊 Export to Excel (.xlsx)
+        </a>
     </div>
 
     <script>
@@ -354,26 +550,6 @@ $total_amount = $total_row['total'] ?? 0;
             if(confirm('Are you sure you want to delete this transaction?')) {
                 window.location.href = 'super_delete_manager.php?tab=transactions&search=' + encodeURIComponent(id);
             }
-        }
-        
-        function exportToExcel() {
-            // Get current filter parameters
-            let location = <?php echo $location_filter; ?>;
-            let date_from = "<?php echo $date_from; ?>";
-            let date_to = "<?php echo $date_to; ?>";
-            let payment = "<?php echo $payment_filter; ?>";
-            let branch = <?php echo $current_branch_id; ?>;
-            
-            // Create export URL
-            let url = 'export_all_transactions.php?' +
-                      'location=' + location +
-                      '&date_from=' + date_from +
-                      '&date_to=' + date_to +
-                      '&payment=' + encodeURIComponent(payment) +
-                      '&branch_id=' + branch;
-            
-            // Open in new tab
-            window.open(url, '_blank');
         }
     </script>
 </body>

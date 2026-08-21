@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_withdrawal'])) {
                 (user_id, username, amount, reason, payment_type, withdrawal_type,
                  ethiopian_date, ethiopian_time, gregorian_date, gregorian_time, created_at, branch_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        mysqli_stmt_bind_param($ins, 'isdsssssssi',
+        mysqli_stmt_bind_param($ins, 'isdssssssssi',
             $user_id, $username, $amount, $reason, $payment_type, $withdrawal_type,
             $eth_date_str, $current_time, $today_date, $current_time, $now, $current_branch_id);
         if (mysqli_stmt_execute($ins)) {

@@ -27,7 +27,7 @@ $transaction = mysqli_fetch_assoc($transaction_result);
 // Convert raw_date to Ethiopian date for the receipt
 function gregorian_to_ethiopian_receipt($gregorian_datetime) {
     try {
-        $date = new DateTime($gregorian_datetime, new DateTimeZone('UTC'));
+        $date = new DateTime($gregorian_datetime, new DateTimeZone('Africa/Addis_Ababa'));
 
         $year  = (int)$date->format('Y');
         $month = (int)$date->format('m');
@@ -48,9 +48,9 @@ function gregorian_to_ethiopian_receipt($gregorian_datetime) {
             $ethiopian_year++;
         }
 
-        $new_year_date = new DateTime("$year-09-{$new_year_day}", new DateTimeZone('UTC'));
+        $new_year_date = new DateTime("$year-09-{$new_year_day}", new DateTimeZone('Africa/Addis_Ababa'));
         if ($month < 9 || ($month == 9 && $day < $new_year_day)) {
-            $new_year_date = new DateTime(($year - 1) . "-09-{$new_year_day}", new DateTimeZone('UTC'));
+            $new_year_date = new DateTime(($year - 1) . "-09-{$new_year_day}", new DateTimeZone('Africa/Addis_Ababa'));
         }
 
         $diff = $date->diff($new_year_date);
@@ -60,13 +60,9 @@ function gregorian_to_ethiopian_receipt($gregorian_datetime) {
 
         if ($eth_month > 13) { $eth_month = 13; }
 
-        // Ethiopian time = UTC+3
-        $eth_hour = $hour + 3;
-        if ($eth_hour >= 24) $eth_hour -= 24;
-
-        $hour_12 = $eth_hour % 12;
+        $hour_12 = $hour % 12;
         $hour_12 = $hour_12 == 0 ? 12 : $hour_12;
-        $am_pm   = $eth_hour < 12 ? 'ጥዋት' : 'ከሰዓት';
+        $am_pm   = $hour < 12 ? 'ጥዋት' : 'ከሰዓት';
 
         return [
             'day'        => $eth_day,
@@ -84,21 +80,19 @@ $eth_date = gregorian_to_ethiopian_receipt($transaction['raw_date']);
 // Get transaction items with name fallback resolution
 $items_query  = "SELECT ti.*, 
                   COALESCE(
-                    IF(p.name != '' AND p.name IS NOT NULL, p.name, NULL),
-                    IF(si.item_name != '' AND si.item_name IS NOT NULL, si.item_name, NULL),
-                    IF(ti.product_name != '0' AND ti.product_name != '', ti.product_name, NULL),
+                    NULLIF(NULLIF(ti.product_name, '0'), ''),
+                    NULLIF(p.name, ''),
                     'ምርት'
                   ) as resolved_product_name
                  FROM transaction_items ti
                  LEFT JOIN products p ON (ti.product_id = p.id AND p.id > 0)
-                 LEFT JOIN seller_inventory si ON (ti.product_id = si.product_id OR ti.product_id = si.id)
                  WHERE ti.transaction_id = $transaction_id";
 $items_result = mysqli_query($conn, $items_query);
 $items = [];
 while ($item = mysqli_fetch_assoc($items_result)) {
     $p_name = (!empty($item['product_name']) && $item['product_name'] !== '0') 
         ? $item['product_name'] 
-        : $item['resolved_product_name'];
+        : (!empty($item['resolved_product_name']) ? $item['resolved_product_name'] : 'ምርት');
 
     $items[] = [
         'id'           => (int)$item['id'],

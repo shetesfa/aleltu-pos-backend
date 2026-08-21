@@ -17,6 +17,13 @@ $period = $_GET['period'] ?? '1month';
 $custom_start = $_GET['start_date'] ?? '';
 $custom_end = $_GET['end_date'] ?? '';
 
+// Get branch info
+$current_branch_id = getCurrentBranchId($conn, $_SESSION['user_id'], $_SESSION['role']);
+if ($_SESSION['role'] === 'super_admin' && isset($_GET['branch_id']) && intval($_GET['branch_id']) > 0) {
+    $current_branch_id = intval($_GET['branch_id']);
+}
+$current_branch_name = getCurrentBranchName($conn, $current_branch_id);
+
 // Date ranges based on period
 $today = date('Y-m-d');
 
@@ -81,6 +88,7 @@ if ($view == 'overview') {
         transaction_date as date
         FROM transactions 
         WHERE DATE(transaction_date) BETWEEN '$date_from_esc' AND '$date_to_esc'
+        AND branch_id = $current_branch_id
         UNION ALL
         SELECT 
         'ክምችት' as type,
@@ -89,6 +97,7 @@ if ($view == 'overview') {
         date_added as date
         FROM stock_logs 
         WHERE DATE(date_added) BETWEEN '$date_from_esc' AND '$date_to_esc'
+        AND branch_id = $current_branch_id
         UNION ALL
         SELECT 
         'ተመላሽ' as type,
@@ -97,6 +106,7 @@ if ($view == 'overview') {
         gregorian_date as date
         FROM product_returns 
         WHERE DATE(gregorian_date) BETWEEN '$date_from_esc' AND '$date_to_esc'
+        AND branch_id = $current_branch_id
         ORDER BY date DESC
         LIMIT 100";
     
@@ -120,6 +130,7 @@ elseif ($view == 'products') {
         FROM transactions t
         JOIN transaction_items ti ON t.id = ti.transaction_id
         WHERE DATE(t.transaction_date) BETWEEN '$date_from_esc' AND '$date_to_esc'
+        AND t.branch_id = $current_branch_id
         GROUP BY ti.product_name
         ORDER BY total_revenue DESC
         LIMIT 50";
@@ -156,6 +167,8 @@ elseif ($view == 'product_performance') {
         LEFT JOIN transaction_items ti ON ti.product_name = p.name
         LEFT JOIN transactions t ON ti.transaction_id = t.id 
             AND DATE(t.transaction_date) BETWEEN '$date_from_esc' AND '$date_to_esc'
+            AND t.branch_id = $current_branch_id
+        WHERE p.branch_id = $current_branch_id
         GROUP BY p.id, p.name
         HAVING total_sold > 0
         ORDER BY total_revenue DESC";
@@ -169,6 +182,7 @@ elseif ($view == 'product_performance') {
         unit
         FROM product_returns 
         WHERE DATE(gregorian_date) BETWEEN '$date_from_esc' AND '$date_to_esc'
+        AND branch_id = $current_branch_id
         GROUP BY product_name, unit";
     $returns_result = mysqli_query($conn, $returns_query);
     $returns_data = [];
@@ -210,6 +224,7 @@ elseif ($view == 'sellers') {
         FROM transactions t
         JOIN transaction_items ti ON t.id = ti.transaction_id
         WHERE DATE(t.transaction_date) BETWEEN '$date_from_esc' AND '$date_to_esc'
+        AND t.branch_id = $current_branch_id
         GROUP BY t.seller_id, t.seller_name
         ORDER BY revenue DESC";
     

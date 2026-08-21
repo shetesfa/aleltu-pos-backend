@@ -39,22 +39,61 @@ if ($current_branch_id > 0) {
     while ($row = mysqli_fetch_assoc($res)) $products[] = $row;
 }
 
-// Payment methods present for this branch
-$payment_methods = [];
-if ($current_branch_id > 0) {
-    $pr = mysqli_query($conn, "SELECT DISTINCT payment_method FROM transactions WHERE branch_id = $current_branch_id AND payment_method IS NOT NULL AND payment_method <> '' ORDER BY payment_method");
-    if ($pr) while ($row = mysqli_fetch_assoc($pr)) $payment_methods[] = $row['payment_method'];
-}
-
 // ---------------------------------------------------------------------------
-// FILTER INPUT
+// ---------------------------------------------------------------------------
+// FILTER INPUT (Native Ethiopian Calendar First)
 // ---------------------------------------------------------------------------
 $mode           = ($_GET['mode'] ?? 'range') === 'dates' ? 'dates' : 'range';
-$date_from      = $_GET['date_from'] ?? date('Y-m-d', strtotime('-6 days'));
-$date_to        = $_GET['date_to'] ?? date('Y-m-d');
+$eth_today      = getEthiopianDate();
+
+$eth_months = [
+    1 => 'መስከረም', 2 => 'ጥቅምት', 3 => 'ኅዳር', 4 => 'ታኅሣሥ',
+    5 => 'ጥር', 6 => 'የካቲት', 7 => 'መጋቢት', 8 => 'ሚያዝያ',
+    9 => 'ግንቦት', 10 => 'ሰኔ', 11 => 'ሐምሌ', 12 => 'ነሐሴ', 13 => 'ጳጉሜ'
+];
+
+if (isset($_GET['eth_year_from']) && isset($_GET['eth_month_from']) && isset($_GET['eth_day_from'])) {
+    $eth_year_from  = intval($_GET['eth_year_from']);
+    $eth_month_from = intval($_GET['eth_month_from']);
+    $eth_day_from   = intval($_GET['eth_day_from']);
+    $date_from      = ethiopianToGregorianDate($eth_year_from, $eth_month_from, $eth_day_from);
+} elseif (isset($_GET['date_from']) && !empty($_GET['date_from'])) {
+    $date_from      = $_GET['date_from'];
+    $eth_f          = getEthiopianDate($date_from);
+    $eth_year_from  = $eth_f['year'];
+    $eth_month_from = $eth_f['month'];
+    $eth_day_from   = $eth_f['day'];
+} else {
+    // Default to last 7 days in Ethiopian calendar
+    $date_from      = date('Y-m-d', strtotime('-6 days'));
+    $eth_f          = getEthiopianDate($date_from);
+    $eth_year_from  = $eth_f['year'];
+    $eth_month_from = $eth_f['month'];
+    $eth_day_from   = $eth_f['day'];
+}
+
+if (isset($_GET['eth_year_to']) && isset($_GET['eth_month_to']) && isset($_GET['eth_day_to'])) {
+    $eth_year_to    = intval($_GET['eth_year_to']);
+    $eth_month_to   = intval($_GET['eth_month_to']);
+    $eth_day_to     = intval($_GET['eth_day_to']);
+    $date_to        = ethiopianToGregorianDate($eth_year_to, $eth_month_to, $eth_day_to);
+} elseif (isset($_GET['date_to']) && !empty($_GET['date_to'])) {
+    $date_to        = $_GET['date_to'];
+    $eth_t          = getEthiopianDate($date_to);
+    $eth_year_to    = $eth_t['year'];
+    $eth_month_to   = $eth_t['month'];
+    $eth_day_to     = $eth_t['day'];
+} else {
+    // Default to today
+    $date_to        = date('Y-m-d');
+    $eth_t          = getEthiopianDate($date_to);
+    $eth_year_to    = $eth_t['year'];
+    $eth_month_to   = $eth_t['month'];
+    $eth_day_to     = $eth_t['day'];
+}
+
 $raw_dates      = trim($_GET['dates'] ?? '');
 $product_ids_in = trim($_GET['product_ids'] ?? '');
-$payment_filter = trim($_GET['payment'] ?? '');
 $has_run        = isset($_GET['run']) || isset($_GET['export']);
 $export         = $_GET['export'] ?? '';
 
@@ -100,6 +139,11 @@ if ($has_run) {
     }
 }
 
+// Ethiopian Date Helper Calculations
+$eth_start = getEthiopianDate($date_from);
+$eth_end   = getEthiopianDate($date_to);
+$eth_date_range_display = ($date_from === $date_to) ? $eth_start['formatted'] : ($eth_start['formatted'] . ' እስከ ' . $eth_end['formatted']);
+
 // ---------------------------------------------------------------------------
 // QUERY
 // ---------------------------------------------------------------------------
@@ -124,10 +168,6 @@ if ($has_run && $current_branch_id > 0 && !empty($target_dates)) {
         $names = implode(',', array_map(function ($n) use ($conn) { return "'" . mysqli_real_escape_string($conn, $n) . "'"; }, $selected_product_names));
         $stock_filter_sql = " AND item_name IN ($names)";
     }
-    $pay_sql = '';
-    if ($payment_filter !== '') {
-        $pay_sql = " AND t.payment_method = '" . mysqli_real_escape_string($conn, $payment_filter) . "'";
-    }
 
     // ---- Sales (from transaction_items joined to transactions) ----
     $sql = "SELECT DATE(t.transaction_date) d, ti.product_id, ti.product_name,
@@ -136,7 +176,7 @@ if ($has_run && $current_branch_id > 0 && !empty($target_dates)) {
             JOIN transactions t ON t.id = ti.transaction_id
             WHERE t.branch_id = $current_branch_id
               AND DATE(t.transaction_date) IN ($date_in)
-              $prod_filter_sql $pay_sql
+              $prod_filter_sql
             GROUP BY d, ti.product_id, ti.product_name
             ORDER BY d ASC, ti.product_name ASC";
     $res = mysqli_query($conn, $sql);
@@ -210,7 +250,7 @@ if ($has_run && $current_branch_id > 0 && !empty($target_dates)) {
                         JOIN transactions t ON t.id = ti.transaction_id
                         WHERE t.branch_id = $current_branch_id
                           AND DATE(t.transaction_date) < '$min_date'
-                          $prod_filter_sql $pay_sql
+                          $prod_filter_sql
                         GROUP BY ti.product_name";
     $psar = mysqli_query($conn, $prior_sales_sql);
     if ($psar) {
@@ -317,7 +357,9 @@ if ($export === 'excel' && $has_run) {
         $sheet->getColumnDimension($colLetter)->setWidth($w);
     }
 
-    $dateInfoText = $mode === 'dates' ? 'የተመረጡ ቀናት (' . $days_selected . ' ቀናት)' : ('ከ ' . $date_from . ' እስከ ' . $date_to);
+    $dateInfoText = ($mode === 'dates') 
+        ? 'የተመረጡ ቀናት (' . $days_selected . ' ቀናት)' 
+        : ('የኢትዮጵያ ቀን: ' . $eth_date_range_display . '   |   Gregorian: ' . $date_from . ' - ' . $date_to);
     $nextRow = renderExcelBannerReal($sheet, 'ከፍተኛ የሽያጭ እና ክምችት ሪፖርት (Advanced Report)', $current_branch_name, $dateInfoText, 1, $colCount);
 
     $headers = ['ምርት (Product)', 'የተሸጠ ብዛት', 'ጠቅላላ ገቢ (ብር)', 'የተመዘገበ ክምችት', 'ቀሪ (Stock - Sold)', 'የሽያጭ ብዛት'];
@@ -366,8 +408,8 @@ if ($export === 'excel' && $has_run) {
         $sheet2 = $spreadsheet->createSheet();
         $sheet2->setTitle('የዕለት ክምችት ፍሰት');
         
-        $colCount2 = 9;
-        $widths2 = [20, 22, 18, 18, 18, 18, 18, 18, 12];
+        $colCount2 = 10;
+        $widths2 = [18, 14, 22, 18, 18, 18, 18, 18, 18, 12];
         foreach ($widths2 as $i => $w) {
             $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
             $sheet2->getColumnDimension($colLetter)->setWidth($w);
@@ -375,7 +417,7 @@ if ($export === 'excel' && $has_run) {
 
         $nextRow2 = renderExcelBannerReal($sheet2, 'የዕለት ክምችት እና ሽያጭ ሙሉ ፍሰት (Daily Stock Flow)', $current_branch_name, $dateInfoText, 1, $colCount2);
 
-        $headers2 = ['ቀን (Date)', 'ምርት (Product)', 'የትላንት ቀሪ (Opening)', 'የዛሬ ስቶክ ገቢ (Stock In)', 'ጠቅላላ የነበረ (Available)', 'የተሸጠ ብዛት (Sold)', 'የቀኑ ቀሪ (Closing)', 'የቀኑ ገቢ (ብር)', 'ግብይቶች'];
+        $headers2 = ['የኢትዮጵያ ቀን', 'ግሪጎሪያን ቀን', 'ምርት (Product)', 'የትላንት ቀሪ (Opening)', 'የዛሬ ስቶክ ገቢ (Stock In)', 'ጠቅላላ የነበረ (Available)', 'የተሸጠ ብዛት (Sold)', 'የቀኑ ቀሪ (Closing)', 'የቀኑ ገቢ (ብር)', 'ግብይቶች'];
         foreach ($headers2 as $i => $label) {
             $sheet2->setCellValue([$i + 1, $nextRow2], $label);
         }
@@ -386,17 +428,19 @@ if ($export === 'excel' && $has_run) {
             foreach ($pdata['days'] as $d => $drow) {
                 if (!$drow['has_activity'] && $drow['opening'] == 0 && $drow['closing'] == 0) continue;
                 
-                $sheet2->setCellValue([1, $r2], $d);
-                $sheet2->setCellValue([2, $r2], $pname);
-                $sheet2->setCellValue([3, $r2], (float)$drow['opening']);
-                $sheet2->setCellValue([4, $r2], (float)$drow['stock_in']);
-                $sheet2->setCellValue([5, $r2], (float)$drow['available']);
-                $sheet2->setCellValue([6, $r2], (float)$drow['sold']);
-                $sheet2->setCellValue([7, $r2], (float)$drow['closing']);
-                $sheet2->setCellValue([8, $r2], (float)$drow['revenue']);
-                $sheet2->setCellValue([9, $r2], (int)$drow['tx_count']);
+                $eth_row_date = getEthiopianDate($d);
+                $sheet2->setCellValue([1, $r2], $eth_row_date['formatted']);
+                $sheet2->setCellValue([2, $r2], $d);
+                $sheet2->setCellValue([3, $r2], $pname);
+                $sheet2->setCellValue([4, $r2], (float)$drow['opening']);
+                $sheet2->setCellValue([5, $r2], (float)$drow['stock_in']);
+                $sheet2->setCellValue([6, $r2], (float)$drow['available']);
+                $sheet2->setCellValue([7, $r2], (float)$drow['sold']);
+                $sheet2->setCellValue([8, $r2], (float)$drow['closing']);
+                $sheet2->setCellValue([9, $r2], (float)$drow['revenue']);
+                $sheet2->setCellValue([10, $r2], (int)$drow['tx_count']);
 
-                for ($ci = 3; $ci <= 8; $ci++) {
+                for ($ci = 4; $ci <= 9; $ci++) {
                     $sheet2->getStyle([$ci, $r2])->getNumberFormat()->setFormatCode('#,##0.00');
                 }
                 styleExcelDataRow($sheet2, $r2, $colCount2, ($r2 % 2 === 0));
@@ -419,7 +463,7 @@ $js_preselected_dates = json_encode($mode === 'dates' ? $target_dates : []);
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>የላቀ ማጣሪያ ሪፖርት | Advanced Filter Report</title>
 <link rel="icon" type="image/jpg" href="image/photo_2026-01-12_07-44-10.jpg">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
 :root {
   --primary: #312e81;
@@ -434,13 +478,112 @@ $js_preselected_dates = json_encode($mode === 'dates' ? $target_dates : []);
   --muted: #64748b;
   --border: #e2e8f0;
 }
-* { margin:0; padding:0; box-sizing:border-box; }
-body {
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+body, input, select, button, textarea {
   font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+}
+.fa, .fas, .far, .fal, .fad, .fab, [class*="fa-"] {
+  font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands", "FontAwesome" !important;
+  font-style: normal;
+}
+body {
   background: var(--bg);
   color: var(--text);
   padding: 20px;
   line-height: 1.5;
+}
+.eth-pill-badge {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-left: 6px;
+  display: inline-block;
+}
+.badge-range-eth {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-left: 10px;
+  display: inline-block;
+}
+.preset-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.preset-pill {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.preset-pill:hover {
+  background: var(--primary-light);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+.eth-picker-box {
+  background: #f8fafc;
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  transition: all 0.2s ease;
+}
+.eth-picker-box:focus-within {
+  border-color: var(--primary);
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(49, 46, 129, 0.08);
+}
+.eth-picker-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.eth-picker-row > div {
+  flex: 1;
+}
+.picker-sub {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.eth-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  background: #ffffff;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.eth-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15);
+}
+.cal-day .cal-day-num {
+  font-size: 15px;
+  font-weight: 800;
 }
 .wrap { max-width: 1350px; margin: 0 auto; }
 
@@ -871,31 +1014,101 @@ table.report-table tr:hover td { background: #e2e8f0; }
             </div>
 
             <div id="rangeSection">
+                <input type="hidden" name="date_from" id="dateFromHidden" value="<?php echo htmlspecialchars($date_from); ?>">
+                <input type="hidden" name="date_to" id="dateToHidden" value="<?php echo htmlspecialchars($date_to); ?>">
+
                 <div class="grid2">
-                    <div>
-                        <label>ከ (From)</label>
-                        <input type="date" name="date_from" value="<?php echo htmlspecialchars($date_from); ?>">
+                    <div class="eth-picker-box">
+                        <label style="font-weight:700; color:var(--primary-dark); margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                            <span><i class="fas fa-calendar-alt" style="color:var(--primary);"></i> ከ (From):</span>
+                            <span id="fromEthDisplay" class="eth-pill-badge"><?php echo $eth_start['formatted']; ?></span>
+                        </label>
+                        <div class="eth-picker-row">
+                            <div>
+                                <span class="picker-sub">ቀን (Day)</span>
+                                <select name="eth_day_from" id="ethDayFrom" class="eth-select" onchange="syncEthRange()">
+                                    <?php for ($d = 1; $d <= 30; $d++): ?>
+                                        <option value="<?php echo $d; ?>" <?php echo ($eth_day_from == $d) ? 'selected' : ''; ?>><?php echo $d; ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                            </div>
+                            <div>
+                                <span class="picker-sub">ወር (Month)</span>
+                                <select name="eth_month_from" id="ethMonthFrom" class="eth-select" onchange="syncEthRange()">
+                                    <?php foreach ($eth_months as $mNum => $mName): ?>
+                                        <option value="<?php echo $mNum; ?>" <?php echo ($eth_month_from == $mNum) ? 'selected' : ''; ?>><?php echo $mNum . '. ' . $mName; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div>
+                                <span class="picker-sub">ዓ.ም (Year)</span>
+                                <select name="eth_year_from" id="ethYearFrom" class="eth-select" onchange="syncEthRange()">
+                                    <?php for ($y = $eth_today['year'] - 3; $y <= $eth_today['year'] + 2; $y++): ?>
+                                        <option value="<?php echo $y; ?>" <?php echo ($eth_year_from == $y) ? 'selected' : ''; ?>><?php echo $y; ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <label>እስከ (To)</label>
-                        <input type="date" name="date_to" value="<?php echo htmlspecialchars($date_to); ?>">
+
+                    <div class="eth-picker-box">
+                        <label style="font-weight:700; color:var(--primary-dark); margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                            <span><i class="fas fa-calendar-check" style="color:var(--accent);"></i> እስከ (To):</span>
+                            <span id="toEthDisplay" class="eth-pill-badge"><?php echo $eth_end['formatted']; ?></span>
+                        </label>
+                        <div class="eth-picker-row">
+                            <div>
+                                <span class="picker-sub">ቀን (Day)</span>
+                                <select name="eth_day_to" id="ethDayTo" class="eth-select" onchange="syncEthRange()">
+                                    <?php for ($d = 1; $d <= 30; $d++): ?>
+                                        <option value="<?php echo $d; ?>" <?php echo ($eth_day_to == $d) ? 'selected' : ''; ?>><?php echo $d; ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                            </div>
+                            <div>
+                                <span class="picker-sub">ወር (Month)</span>
+                                <select name="eth_month_to" id="ethMonthTo" class="eth-select" onchange="syncEthRange()">
+                                    <?php foreach ($eth_months as $mNum => $mName): ?>
+                                        <option value="<?php echo $mNum; ?>" <?php echo ($eth_month_to == $mNum) ? 'selected' : ''; ?>><?php echo $mNum . '. ' . $mName; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div>
+                                <span class="picker-sub">ዓ.ም (Year)</span>
+                                <select name="eth_year_to" id="ethYearTo" class="eth-select" onchange="syncEthRange()">
+                                    <?php for ($y = $eth_today['year'] - 3; $y <= $eth_today['year'] + 2; $y++): ?>
+                                        <option value="<?php echo $y; ?>" <?php echo ($eth_year_to == $y) ? 'selected' : ''; ?>><?php echo $y; ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                            </div>
+                        </div>
                     </div>
+                </div>
+
+                <div class="preset-btn-group">
+                    <button type="button" class="preset-pill" onclick="applyEthPreset('today')"><i class="fas fa-sun"></i> ዛሬ (Today)</button>
+                    <button type="button" class="preset-pill" onclick="applyEthPreset('yesterday')"><i class="fas fa-history"></i> ትናንት (Yesterday)</button>
+                    <button type="button" class="preset-pill" onclick="applyEthPreset('last3days')">ያለፉት 3 ቀናት</button>
+                    <button type="button" class="preset-pill" onclick="applyEthPreset('last7days')">ያለፈው 1 ሳምንት</button>
+                    <button type="button" class="preset-pill" onclick="applyEthPreset('last2weeks')">ያለፉት 2 ሳምንታት</button>
+                    <button type="button" class="preset-pill" onclick="applyEthPreset('this_month')"><i class="fas fa-calendar-alt"></i> ይህ ወር (ሙሉ <?php echo $eth_today['month_name']; ?>)</button>
+                    <button type="button" class="preset-pill" onclick="applyEthPreset('last_month')">ያለፈው ወር</button>
                 </div>
             </div>
 
             <div id="datesSection" style="display:none;">
                 <div class="cal-nav">
-                    <button type="button" onclick="calShift(-1)"><i class="fas fa-chevron-left"></i> ያለፈው ወር</button>
-                    <div class="cal-title" id="calTitle"></div>
-                    <button type="button" onclick="calShift(1)">የሚቀጥለው ወር <i class="fas fa-chevron-right"></i></button>
+                    <button type="button" onclick="ethCalShift(-1)"><i class="fas fa-chevron-left"></i> ያለፈው ወር</button>
+                    <div class="cal-title" id="calTitle" style="font-size:17px; font-weight:800; color:var(--primary);"></div>
+                    <button type="button" onclick="ethCalShift(1)">የሚቀጥለው ወር <i class="fas fa-chevron-right"></i></button>
                 </div>
                 <div class="cal-grid" id="calDow"></div>
                 <div class="cal-grid" id="calGrid"></div>
                 <div class="cal-actions">
-                    <button type="button" onclick="selectWholeMonth()"><i class="fas fa-calendar-plus"></i> የዚህ ወር ሁሉንም ምረጥ</button>
-                    <button type="button" onclick="selectLastNDays(3)">የመጨረሻ 3 ቀናት</button>
-                    <button type="button" onclick="selectLastNDays(7)">የመጨረሻ 7 ቀናት</button>
-                    <button type="button" onclick="selectLastNDays(30)">የመጨረሻ 30 ቀናት</button>
+                    <button type="button" onclick="selectWholeEthMonth()"><i class="fas fa-calendar-plus"></i> የዚህ ወር ሁሉንም ምረጥ</button>
+                    <button type="button" onclick="selectLastNEthDays(3)">የመጨረሻ 3 ቀናት</button>
+                    <button type="button" onclick="selectLastNEthDays(7)">የመጨረሻ 7 ቀናት</button>
+                    <button type="button" onclick="selectLastNEthDays(30)">የመጨረሻ 30 ቀናት</button>
                     <button type="button" class="danger" onclick="clearDates()"><i class="fas fa-trash"></i> ሁሉንም አጥፋ</button>
                 </div>
                 <div class="chips" id="chipsBox"></div>
@@ -921,16 +1134,6 @@ table.report-table tr:hover td { background: #e2e8f0; }
                 <?php endif; ?>
             </div>
 
-            <div style="margin-top:14px;">
-                <label><i class="fas fa-credit-card"></i> የክፍያ አይነት / Payment Method</label>
-                <select name="payment">
-                    <option value="">-- ሁሉም / All --</option>
-                    <?php foreach ($payment_methods as $pm): ?>
-                    <option value="<?php echo htmlspecialchars($pm); ?>" <?php echo $payment_filter === $pm ? 'selected' : ''; ?>><?php echo htmlspecialchars(ucfirst($pm)); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
             <div class="btn-row">
                 <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> ሪፖርት አሳይ / Generate Report</button>
                 <?php if ($has_run && !$date_error): ?>
@@ -949,7 +1152,10 @@ table.report-table tr:hover td { background: #e2e8f0; }
     <?php if ($has_run && !$date_error): ?>
 
         <div class="card">
-            <h2><i class="fas fa-chart-pie"></i> ማጠቃለያ / Summary</h2>
+            <h2>
+                <i class="fas fa-chart-pie"></i> ማጠቃለያ / Summary
+                <span class="badge-range-eth"><?php echo htmlspecialchars($eth_date_range_display); ?></span>
+            </h2>
             <div class="summary-grid">
                 <div class="stat">
                     <div class="num"><?php echo $days_selected; ?></div>
@@ -1047,7 +1253,7 @@ table.report-table tr:hover td { background: #e2e8f0; }
                 </div>
                 <div>
                     <label class="flow-toggle-label">
-                        <input type="checkbox" id="chkActiveOnly" checked onchange="toggleFlowActiveDays(this.checked)">
+                        <input type="checkbox" id="chkActiveOnly" onchange="toggleFlowActiveDays(this.checked)">
                         <span>እንቅስቃሴ ያላቸውን ቀናት ብቻ አሳይ (Active Days Only)</span>
                     </label>
                 </div>
@@ -1089,11 +1295,17 @@ table.report-table tr:hover td { background: #e2e8f0; }
                             $dObj = DateTime::createFromFormat('Y-m-d', $d);
                             $engDay = $dObj ? $dObj->format('l') : '';
                             $amDay = $dayNameAmharic[$engDay] ?? '';
-                            $dateTitle = $dObj ? ($dObj->format('Y-m-d') . ' (' . ($amDay ? $amDay . ' / ' : '') . $engDay . ')') : $d;
+                            $ethDate = getEthiopianDate($d);
                             $rowClass = $drow['has_activity'] ? 'flow-row-active' : 'flow-row-inactive';
                         ?>
                             <tr class="<?php echo $rowClass; ?>" style="<?php echo (!$drow['has_activity'] && $drow['opening'] == 0 && $drow['closing'] == 0) ? 'display:none;' : ''; ?>">
-                                <td><b><?php echo htmlspecialchars($dateTitle); ?></b></td>
+                                <td>
+                                    <strong style="color:var(--primary); font-size:13.5px;"><?php echo htmlspecialchars($ethDate['formatted']); ?></strong>
+                                    <?php if ($amDay): ?>
+                                        <span style="color:var(--accent-gold); font-weight:700; font-size:12px;">(<?php echo $amDay; ?>)</span>
+                                    <?php endif; ?>
+                                    <div style="font-size:11px; color:var(--muted); margin-top:2px;">Gregorian: <?php echo htmlspecialchars($d); ?></div>
+                                </td>
                                 <td style="text-align:right;"><span class="badge-flow badge-open"><?php echo number_format($drow['opening'], 2); ?></span></td>
                                 <td style="text-align:right;">
                                     <?php if ($drow['stock_in'] > 0): ?>
@@ -1170,89 +1382,252 @@ function setMode(m) {
 }
 setMode('<?php echo $mode; ?>');
 
-// ---------------- Multi-month random-date calendar ----------------
+// ---------------- Ethiopian Calendar JS Helper ----------------
+const ETH_MONTH_NAMES = [
+    '', 'መስከረም', 'ጥቅምት', 'ኅዳር', 'ታኅሣሥ',
+    'ጥር', 'የካቲት', 'መጋቢት', 'ሚያዝያ',
+    'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
+];
+
+function ethiopianToJDNJS(year, month, day) {
+    return (1723856 + 365) + 365 * (year - 1) + Math.floor(year / 4) + 30 * (month - 1) + day - 1;
+}
+
+function jdnToGregorianJS(jdn) {
+    const l = jdn + 68569;
+    const n = Math.floor((4 * l) / 146097);
+    const l2 = l - Math.floor((146097 * n + 3) / 4);
+    const i = Math.floor((4000 * (l2 + 1)) / 1461001);
+    const l3 = l2 - Math.floor((1461 * i) / 4) + 31;
+    const j = Math.floor((80 * l3) / 2447);
+    const day = l3 - Math.floor((2447 * j) / 80);
+    const l4 = Math.floor(j / 11);
+    const month = j + 2 - (12 * l4);
+    const year = 100 * (n - 49) + i + l4;
+    return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+function ethToGregJS(year, month, day) {
+    const jdn = ethiopianToJDNJS(year, month, day);
+    return jdnToGregorianJS(jdn);
+}
+
+function gregToEthJS(dateStr) {
+    if (!dateStr) return { day: 1, month: 1, year: 2018, formatted: '' };
+    const parts = dateStr.split('-');
+    const gy = parseInt(parts[0], 10);
+    const gm = parseInt(parts[1], 10);
+    const gd = parseInt(parts[2], 10);
+
+    const a = Math.floor((14 - gm) / 12);
+    const y = gy + 4800 - a;
+    const m = gm + 12 * a - 3;
+    const jdn = gd + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
+
+    const eth_epoch = 1723856;
+    const r = (jdn - eth_epoch) % 1461;
+    const n = (r % 365) + 365 * Math.floor(r / 1460);
+
+    const eth_year = 4 * Math.floor((jdn - eth_epoch) / 1461) + Math.floor(r / 365) - Math.floor(r / 1460);
+    let eth_month = Math.floor(n / 30) + 1;
+    const eth_day = (n % 30) + 1;
+    if (eth_month > 13) eth_month = 13;
+
+    return {
+        day: eth_day,
+        month: eth_month,
+        year: eth_year,
+        formatted: `${eth_day} ${ETH_MONTH_NAMES[eth_month]} ${eth_year}`
+    };
+}
+
+function syncEthRange() {
+    const df = parseInt(document.getElementById('ethDayFrom').value, 10);
+    const mf = parseInt(document.getElementById('ethMonthFrom').value, 10);
+    const yf = parseInt(document.getElementById('ethYearFrom').value, 10);
+
+    const dt = parseInt(document.getElementById('ethDayTo').value, 10);
+    const mt = parseInt(document.getElementById('ethMonthTo').value, 10);
+    const yt = parseInt(document.getElementById('ethYearTo').value, 10);
+
+    const maxDaysFrom = (mf === 13) ? ((yf % 4 === 3) ? 6 : 5) : 30;
+    if (df > maxDaysFrom) document.getElementById('ethDayFrom').value = maxDaysFrom;
+
+    const maxDaysTo = (mt === 13) ? ((yt % 4 === 3) ? 6 : 5) : 30;
+    if (dt > maxDaysTo) document.getElementById('ethDayTo').value = maxDaysTo;
+
+    const validDf = Math.min(df, maxDaysFrom);
+    const validDt = Math.min(dt, maxDaysTo);
+
+    document.getElementById('fromEthDisplay').textContent = `${validDf} ${ETH_MONTH_NAMES[mf]} ${yf}`;
+    document.getElementById('toEthDisplay').textContent = `${validDt} ${ETH_MONTH_NAMES[mt]} ${yt}`;
+
+    document.getElementById('dateFromHidden').value = ethToGregJS(yf, mf, validDf);
+    document.getElementById('dateToHidden').value = ethToGregJS(yt, mt, validDt);
+}
+
+function setEthDateInputs(fromObj, toObj) {
+    document.getElementById('ethDayFrom').value = fromObj.day;
+    document.getElementById('ethMonthFrom').value = fromObj.month;
+    document.getElementById('ethYearFrom').value = fromObj.year;
+
+    document.getElementById('ethDayTo').value = toObj.day;
+    document.getElementById('ethMonthTo').value = toObj.month;
+    document.getElementById('ethYearTo').value = toObj.year;
+
+    syncEthRange();
+}
+
+function applyEthPreset(preset) {
+    const todayGreg = new Date();
+    const todayStr = `${todayGreg.getFullYear()}-${String(todayGreg.getMonth()+1).padStart(2,'0')}-${String(todayGreg.getDate()).padStart(2,'0')}`;
+    const todayEth = gregToEthJS(todayStr);
+
+    if (preset === 'today') {
+        setEthDateInputs(todayEth, todayEth);
+    } else if (preset === 'yesterday') {
+        const yGreg = new Date();
+        yGreg.setDate(todayGreg.getDate() - 1);
+        const yStr = `${yGreg.getFullYear()}-${String(yGreg.getMonth()+1).padStart(2,'0')}-${String(yGreg.getDate()).padStart(2,'0')}`;
+        const yEth = gregToEthJS(yStr);
+        setEthDateInputs(yEth, yEth);
+    } else if (preset === 'last3days') {
+        const d3Greg = new Date();
+        d3Greg.setDate(todayGreg.getDate() - 2);
+        const d3Str = `${d3Greg.getFullYear()}-${String(d3Greg.getMonth()+1).padStart(2,'0')}-${String(d3Greg.getDate()).padStart(2,'0')}`;
+        setEthDateInputs(gregToEthJS(d3Str), todayEth);
+    } else if (preset === 'last7days') {
+        const d7Greg = new Date();
+        d7Greg.setDate(todayGreg.getDate() - 6);
+        const d7Str = `${d7Greg.getFullYear()}-${String(d7Greg.getMonth()+1).padStart(2,'0')}-${String(d7Greg.getDate()).padStart(2,'0')}`;
+        setEthDateInputs(gregToEthJS(d7Str), todayEth);
+    } else if (preset === 'last2weeks') {
+        const d14Greg = new Date();
+        d14Greg.setDate(todayGreg.getDate() - 13);
+        const d14Str = `${d14Greg.getFullYear()}-${String(d14Greg.getMonth()+1).padStart(2,'0')}-${String(d14Greg.getDate()).padStart(2,'0')}`;
+        setEthDateInputs(gregToEthJS(d14Str), todayEth);
+    } else if (preset === 'this_month') {
+        const monthMax = (todayEth.month === 13) ? ((todayEth.year % 4 === 3) ? 6 : 5) : 30;
+        setEthDateInputs(
+            { day: 1, month: todayEth.month, year: todayEth.year },
+            { day: monthMax, month: todayEth.month, year: todayEth.year }
+        );
+    } else if (preset === 'last_month') {
+        let prevM = todayEth.month - 1;
+        let prevY = todayEth.year;
+        if (prevM < 1) { prevM = 13; prevY--; }
+        const monthMax = (prevM === 13) ? ((prevY % 4 === 3) ? 6 : 5) : 30;
+        setEthDateInputs(
+            { day: 1, month: prevM, year: prevY },
+            { day: monthMax, month: prevM, year: prevY }
+        );
+    }
+
+    document.getElementById('filterForm').submit();
+}
+
+// ---------------- Native Ethiopian Multi-Month Calendar ----------------
 let selectedDates = new Set(<?php echo $js_preselected_dates; ?>);
-let calYear, calMonth; // calMonth: 0-11
-(function initCal() {
-    const now = new Date();
-    calYear = now.getFullYear();
-    calMonth = now.getMonth();
-})();
 
-const DOW = ['እ','ሰ','ማ','ረ','ሐ','ዓ','ቅ']; // Sun..Sat short (Amharic-ish labels, purely visual)
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+// Current Ethiopian Month & Year in View
+const initialEth = gregToEthJS('<?php echo date('Y-m-d'); ?>');
+let ethCalYear = initialEth.year;
+let ethCalMonth = initialEth.month; // 1 to 13
 
-function pad(n){ return n < 10 ? '0'+n : ''+n; }
-function fmt(y,m,d){ return y + '-' + pad(m+1) + '-' + pad(d); }
+const ETH_DOW = ['ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'አርብ', 'ቅዳሜ', 'እሁድ']; // Mon-Sun
 
-function renderCalendar() {
-    document.getElementById('calTitle').textContent = MONTH_NAMES[calMonth] + ' ' + calYear;
+function renderEthiopianCalendar() {
+    document.getElementById('calTitle').innerHTML = `<span>${ETH_MONTH_NAMES[ethCalMonth]} ${ethCalYear}</span>`;
+    
     const dowBox = document.getElementById('calDow');
     dowBox.innerHTML = '';
-    DOW.forEach(d => { const el = document.createElement('div'); el.className='cal-dow'; el.textContent = d; dowBox.appendChild(el); });
+    ETH_DOW.forEach(d => {
+        const el = document.createElement('div');
+        el.className = 'cal-dow';
+        el.textContent = d;
+        dowBox.appendChild(el);
+    });
 
     const grid = document.getElementById('calGrid');
     grid.innerHTML = '';
-    const firstDay = new Date(calYear, calMonth, 1).getDay();
-    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-    const todayStr = fmt(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
-    for (let i = 0; i < firstDay; i++) {
-        const el = document.createElement('div');
-        el.className = 'cal-day empty';
-        grid.appendChild(el);
+    const g1Str = ethToGregJS(ethCalYear, ethCalMonth, 1);
+    const g1Date = new Date(g1Str + 'T00:00:00');
+    let dayOfWeek = g1Date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    let offset = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
+
+    const totalDays = (ethCalMonth === 13) ? ((ethCalYear % 4 === 3) ? 6 : 5) : 30;
+    const todayEth = gregToEthJS('<?php echo date('Y-m-d'); ?>');
+    const isCurrentEthMonth = (ethCalYear === todayEth.year && ethCalMonth === todayEth.month);
+
+    for (let i = 0; i < offset; i++) {
+        const emptyCell = document.createElement('div');
+        emptyCell.className = 'cal-day empty';
+        grid.appendChild(emptyCell);
     }
-    for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = fmt(calYear, calMonth, d);
+
+    for (let d = 1; d <= totalDays; d++) {
+        const gregDateStr = ethToGregJS(ethCalYear, ethCalMonth, d);
         const el = document.createElement('div');
         el.className = 'cal-day';
-        if (dateStr === todayStr) el.classList.add('today');
-        if (selectedDates.has(dateStr)) el.classList.add('selected');
-        el.textContent = d;
+        if (isCurrentEthMonth && d === todayEth.day) el.classList.add('today');
+        if (selectedDates.has(gregDateStr)) el.classList.add('selected');
+
+        el.innerHTML = `<span class="cal-day-num">${d}</span>`;
+        el.title = `${d} ${ETH_MONTH_NAMES[ethCalMonth]} ${ethCalYear} (${gregDateStr})`;
+
         el.onclick = () => {
-            if (selectedDates.has(dateStr)) selectedDates.delete(dateStr);
-            else selectedDates.add(dateStr);
-            renderCalendar();
+            if (selectedDates.has(gregDateStr)) selectedDates.delete(gregDateStr);
+            else selectedDates.add(gregDateStr);
+            renderEthiopianCalendar();
             renderChips();
         };
         grid.appendChild(el);
     }
 }
 
-function calShift(dir) {
-    calMonth += dir;
-    if (calMonth > 11) { calMonth = 0; calYear++; }
-    if (calMonth < 0) { calMonth = 11; calYear--; }
-    renderCalendar();
+function ethCalShift(dir) {
+    ethCalMonth += dir;
+    if (ethCalMonth > 13) {
+        ethCalMonth = 1;
+        ethCalYear++;
+    } else if (ethCalMonth < 1) {
+        ethCalMonth = 13;
+        ethCalYear--;
+    }
+    renderEthiopianCalendar();
 }
 
-function selectWholeMonth() {
-    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-    for (let d = 1; d <= daysInMonth; d++) selectedDates.add(fmt(calYear, calMonth, d));
-    renderCalendar();
+function selectWholeEthMonth() {
+    const totalDays = (ethCalMonth === 13) ? ((ethCalYear % 4 === 3) ? 6 : 5) : 30;
+    for (let d = 1; d <= totalDays; d++) {
+        selectedDates.add(ethToGregJS(ethCalYear, ethCalMonth, d));
+    }
+    renderEthiopianCalendar();
     renderChips();
 }
 
-function selectLastNDays(n) {
-    const today = new Date();
+function selectLastNEthDays(n) {
+    const todayGreg = new Date();
     for (let i = 0; i < n; i++) {
         const d = new Date();
-        d.setDate(today.getDate() - i);
-        selectedDates.add(fmt(d.getFullYear(), d.getMonth(), d.getDate()));
+        d.setDate(todayGreg.getDate() - i);
+        const yStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        selectedDates.add(yStr);
     }
-    renderCalendar();
+    renderEthiopianCalendar();
     renderChips();
 }
 
 function clearDates() {
     selectedDates.clear();
-    renderCalendar();
+    renderEthiopianCalendar();
     renderChips();
 }
 
-function removeDate(d) {
-    selectedDates.delete(d);
-    renderCalendar();
+function removeEthDate(gregStr) {
+    selectedDates.delete(gregStr);
+    renderEthiopianCalendar();
     renderChips();
 }
 
@@ -1264,9 +1639,10 @@ function renderChips() {
         box.innerHTML = '<div class="chip-empty">ምንም ቀን አልተመረጠም / No dates selected yet</div>';
     } else {
         sorted.forEach(d => {
+            const eth = gregToEthJS(d);
             const chip = document.createElement('div');
             chip.className = 'chip';
-            chip.innerHTML = d + ' <span class="x" onclick="removeDate(\'' + d + '\')">&times;</span>';
+            chip.innerHTML = `<strong>${eth.formatted}</strong> <span class="x" onclick="removeEthDate('${d}')">&times;</span>`;
             box.appendChild(chip);
         });
     }
@@ -1274,8 +1650,9 @@ function renderChips() {
     document.getElementById('datesInput').value = sorted.join(',');
 }
 
-renderCalendar();
+renderEthiopianCalendar();
 renderChips();
+syncEthRange();
 
 // ---------------- Daily Flow Product & Active filter ----------------
 function filterFlowProduct(pname, btn) {

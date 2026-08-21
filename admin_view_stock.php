@@ -23,14 +23,47 @@ $current_branch_id = getCurrentBranchId($conn, $user_id, $user_role);
 $current_branch_name = getCurrentBranchName($conn, $current_branch_id);
 $all_branches = ($user_role === 'super_admin') ? getAllBranches($conn) : [];
 
-// Ethiopian Calendar Helper
+// Ethiopian Calendar & Time Helper
 $today_eth = getEthiopianDate();
 $today_display = $today_eth['formatted'];
+
+if (!function_exists('get_ethiopian_time_display')) {
+    function get_ethiopian_time_display($gregorian_datetime) {
+        if (empty($gregorian_datetime)) return '-';
+        $ts = strtotime($gregorian_datetime);
+        if (!$ts) return '-';
+        
+        $dt = new DateTime($gregorian_datetime, new DateTimeZone('Africa/Addis_Ababa'));
+        $hour24 = (int)$dt->format('G'); // 0-23
+        $minute = $dt->format('i');
+        
+        // Ethiopian 12-hour calculation (6:00 AM is 12:00 ጥዋት, 7:00 AM is 1:00 ጥዋት)
+        $eth_hour = ($hour24 - 6) % 12;
+        if ($eth_hour < 0) {
+            $eth_hour += 12;
+        }
+        if ($eth_hour === 0) {
+            $eth_hour = 12;
+        }
+        
+        if ($hour24 >= 6 && $hour24 < 12) {
+            $period = 'ጥዋት';
+        } elseif ($hour24 >= 12 && $hour24 < 18) {
+            $period = 'ከሰዓት';
+        } elseif ($hour24 >= 18 && $hour24 < 24) {
+            $period = 'ማታ';
+        } else {
+            $period = 'ሌሊት';
+        }
+        
+        return sprintf("%d:%s %s", $eth_hour, $minute, $period);
+    }
+}
 
 // -------------------------------------------------------------
 // FILTER PARAMETERS
 // -------------------------------------------------------------
-$date_range      = $_GET['date_range'] ?? 'today';
+$date_range      = $_GET['date_range'] ?? 'last7days';
 $custom_start    = trim($_GET['custom_start'] ?? '');
 $custom_end      = trim($_GET['custom_end'] ?? '');
 $selected_seller = intval($_GET['seller_id'] ?? 0);
@@ -41,7 +74,7 @@ $search_term     = trim($_GET['search'] ?? '');
 // Date Range Calculation
 $start_date = '';
 $end_date   = '';
-$period_text = 'ዛሬ';
+$period_text = 'ያለፈው 1 ሳምንት';
 
 $range_map = [
     'today'      => ['days' => 0,   'text' => 'የዛሬ'],
@@ -240,10 +273,14 @@ if ($sellers_res) {
     }
 }
 
-// Fetch Real Dynamic Sources from Database
+// Fetch Real Dynamic Sources from Database (dynamically filtered by selected product)
 $source_conds = ["source IS NOT NULL", "source != ''"];
 if ($current_branch_id > 0) {
     $source_conds[] = "branch_id = $current_branch_id";
+}
+if (!empty($selected_product)) {
+    $safe_prod = mysqli_real_escape_string($conn, $selected_product);
+    $source_conds[] = "item_name = '$safe_prod'";
 }
 $source_where = "WHERE " . implode(' AND ', $source_conds);
 $sources_res = mysqli_query($conn, "SELECT DISTINCT source FROM stock_logs $source_where ORDER BY source ASC");
@@ -255,113 +292,160 @@ if ($sources_res) {
 }
 
 function getSourceDisplayName($src) {
+    $raw = trim($src);
+    $normalized = strtolower($raw);
     $map = [
-        'admin'    => 'ከአድሚን (Admin)',
-        'purchase' => 'የተገዛ (Purchase)',
-        'return'   => 'ተመላሽ (Return)',
-        'legedadi' => 'ለገዳዲ (Legedadi)',
-        'legeadi'  => 'ለገዳዲ (Legedadi)'
+        'admin'       => 'ከአድሚን (Admin)',
+        'purchase'    => 'የተገዛ (Purchase)',
+        'return'      => 'ተመላሽ (Return)',
+        'legedadi'    => 'ለገዳዲ (Legedadi)',
+        'legeadi'     => 'ለገዳዲ (Legedadi)',
+        'biruk'       => 'ብሩክ (Biruk)',
+        'ብሩክ'        => 'ብሩክ (Biruk)',
+        'henok'       => 'ሄኖክ (Henok)',
+        'hanok'       => 'ሄኖክ (Henok)',
+        'aberham'     => 'አብርሃም (Aberham)',
+        'abrham'      => 'አብርሃም (Aberham)',
+        'abrham ken'  => 'አብርሃም (Aberham)',
+        'abrham ken ' => 'አብርሃም (Aberham)'
     ];
-    return $map[strtolower(trim($src))] ?? htmlspecialchars($src);
+    return $map[$normalized] ?? $map[rtrim($normalized, ' ')] ?? htmlspecialchars($raw);
 }
 
 // -------------------------------------------------------------
-// EXPORT TO EXCEL HANDLER
+// EXPORT TO EXCEL HANDLER (Native .xlsx with PhpSpreadsheet)
 // -------------------------------------------------------------
 if (isset($_GET['export']) && $_GET['export'] === 'excel') {
-    header('Content-Type: application/vnd.ms-excel; charset=utf-8');
-    header('Content-Disposition: attachment; filename="Stock_Inflow_Report_' . date('Y-m-d') . '.xls"');
-    header('Cache-Control: max-age=0');
-    
-    echo "\xEF\xBB\xBF"; // UTF-8 BOM
-    ?>
-    <html>
-    <head>
-        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-        <style>
-            table { border-collapse: collapse; width: 100%; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }
-            th { background: #1e293b; color: #ffffff; padding: 10px; border: 1px solid #ddd; text-align: left; }
-            td { padding: 8px 10px; border: 1px solid #ddd; }
-            .header-title { font-size: 18px; font-weight: bold; color: #1e3a8a; margin-bottom: 5px; }
-            .summary-header { background: #3b82f6; color: white; font-weight: bold; }
-            .inflow { color: #16a34a; font-weight: bold; }
-            .outflow { color: #dc2626; font-weight: bold; }
-        </style>
-    </head>
-    <body>
-        <div class="header-title">የስቶክ ገቢ እና እንቅስቃሴ ማጠቃለያ ሪፖርት (Stock Inflow Report)</div>
-        <p><strong>ቅርንጫፍ:</strong> <?php echo htmlspecialchars($current_branch_name); ?> | <strong>የቀን ክልል:</strong> <?php echo htmlspecialchars($period_text); ?> | <strong>የወጣበት ቀን:</strong> <?php echo date('Y-m-d H:i'); ?></p>
-        
-        <h3>1. በምርት የተጠቃለለ የስቶክ ገቢ ማጠቃለያ (Summary by Product)</h3>
-        <table border="1">
-            <thead>
-                <tr class="summary-header">
-                    <th>#</th>
-                    <th>የምርት ስም</th>
-                    <th>መለኪያ</th>
-                    <th>ጠቅላላ የገባ ስቶክ</th>
-                    <th>ጠቅላላ ተመላሽ/ቅነሳ</th>
-                    <th>የተጣራ ገቢ (Net)</th>
-                    <th>የስቶክ ገቢ ዙር ብዛት</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php $i=1; foreach($product_breakdown as $pb): ?>
-                <tr>
-                    <td><?php echo $i++; ?></td>
-                    <td><strong><?php echo htmlspecialchars($pb['item_name']); ?></strong></td>
-                    <td><?php echo htmlspecialchars($pb['unit']); ?></td>
-                    <td class="inflow"><?php echo number_format($pb['in_qty'], 2); ?></td>
-                    <td class="outflow"><?php echo number_format($pb['out_qty'], 2); ?></td>
-                    <td><strong><?php echo number_format($pb['net_qty'], 2); ?></strong></td>
-                    <td><?php echo number_format($pb['entry_count']); ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-        
-        <br><br>
-        <h3>2. ዝርዝር የስቶክ ገቢ እና እንቅስቃሴ ማህደር (Itemized Stock Inflow Logs)</h3>
-        <table border="1">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>ተጠቃሚ/መዝጋቢ</th>
-                    <th>የኢትዮጵያ ቀን</th>
-                    <th>ሰዓት</th>
-                    <th>የምርት ስም</th>
-                    <th>ብዛት</th>
-                    <th>መለኪያ</th>
-                    <th>ምንጭ</th>
-                    <th>ማስታወሻ</th>
-                    <th>ግሪጎሪያን ቀን</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php $n=1; foreach($stock_logs as $log): 
-                    $eth_log = getEthiopianDate($log['date_added']);
-                ?>
-                <tr>
-                    <td><?php echo $n++; ?></td>
-                    <td><?php echo htmlspecialchars($log['seller_full_name']); ?></td>
-                    <td><?php echo $eth_log['formatted']; ?></td>
-                    <td><?php echo date('h:i A', strtotime($log['date_added'])); ?></td>
-                    <td><strong><?php echo htmlspecialchars($log['item_name']); ?></strong></td>
-                    <td class="<?php echo ($log['quantity'] >= 0) ? 'inflow' : 'outflow'; ?>">
-                        <?php echo ($log['quantity'] >= 0 ? '+' : '') . number_format($log['quantity'], 2); ?>
-                    </td>
-                    <td><?php echo htmlspecialchars($log['unit'] ?? 'pcs'); ?></td>
-                    <td><?php echo getSourceDisplayName($log['source'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($log['notes'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($log['date_added']); ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-    </body>
-    </html>
-    <?php
-    exit();
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+
+    // ── SHEET 1: SUMMARY BY PRODUCT ──
+    $sheet1 = $spreadsheet->getActiveSheet();
+    $sheet1->setTitle('የስቶክ ማጠቃለያ');
+
+    $colCount1 = 7;
+    $widths1 = [6, 25, 12, 18, 18, 18, 16];
+    foreach ($widths1 as $i => $w) {
+        $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+        $sheet1->getColumnDimension($colLetter)->setWidth($w);
+    }
+
+    $nextRow = renderExcelBannerReal(
+        $sheet1,
+        'የስቶክ ገቢ ማጠቃለያ (Stock Inflow Summary)',
+        $current_branch_name,
+        'የቀን ክልል: ' . $period_text,
+        1,
+        $colCount1
+    );
+
+    $headers1 = ['#', 'የምርት ስም', 'መለኪያ', 'ጠቅላላ የገባ ስቶክ', 'ጠቅላላ ተመላሽ/ቅነሳ', 'የተጣራ ገቢ (Net)', 'የስቶክ ገቢ ዙር'];
+    foreach ($headers1 as $i => $label) {
+        $sheet1->setCellValue([$i + 1, $nextRow], $label);
+    }
+    styleExcelHeaderRow($sheet1, $nextRow, $colCount1);
+    $dataStartRow1 = $nextRow + 1;
+    $row = $dataStartRow1;
+
+    if (!empty($product_breakdown)) {
+        $counter = 1;
+        foreach ($product_breakdown as $pb) {
+            $sheet1->setCellValue([1, $row], $counter++);
+            $sheet1->setCellValue([2, $row], $pb['item_name']);
+            $sheet1->setCellValue([3, $row], $pb['unit']);
+            $sheet1->setCellValue([4, $row], (float)$pb['in_qty']);
+            $sheet1->setCellValue([5, $row], (float)$pb['out_qty']);
+            $sheet1->setCellValue([6, $row], (float)$pb['net_qty']);
+            $sheet1->setCellValue([7, $row], (int)$pb['entry_count']);
+
+            $sheet1->getStyle([4, $row])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet1->getStyle([5, $row])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet1->getStyle([6, $row])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet1->getStyle([7, $row])->getNumberFormat()->setFormatCode('#,##0');
+
+            $sheet1->getStyle([4, $row])->getFont()->setBold(true)->getColor()->setRGB('15803D');
+            if ($pb['out_qty'] > 0) {
+                $sheet1->getStyle([5, $row])->getFont()->setBold(true)->getColor()->setRGB('DC2626');
+            }
+            $sheet1->getStyle([6, $row])->getFont()->setBold(true)->getColor()->setRGB('1E293B');
+
+            styleExcelDataRow($sheet1, $row, $colCount1, ($row % 2 === 0));
+            $row++;
+        }
+    } else {
+        $sheet1->mergeCells([1, $row, $colCount1, $row]);
+        $sheet1->setCellValue([1, $row], 'ምንም data አልተገኘም');
+        $sheet1->getStyle([1, $row])->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $row++;
+    }
+
+    $sheet1->freezePane([1, $dataStartRow1]);
+
+    // ── SHEET 2: DETAILED STOCK LOGS ──
+    $sheet2 = $spreadsheet->createSheet();
+    $sheet2->setTitle('ዝርዝር የስቶክ ማህደር');
+
+    $colCount2 = 10;
+    $widths2 = [6, 18, 16, 16, 22, 14, 10, 18, 25, 22];
+    foreach ($widths2 as $i => $w) {
+        $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+        $sheet2->getColumnDimension($colLetter)->setWidth($w);
+    }
+
+    $nextRow2 = renderExcelBannerReal(
+        $sheet2,
+        'ዝርዝር የስቶክ ገቢ እና እንቅስቃሴ ማህደር (Itemized Inflow Logs)',
+        $current_branch_name,
+        'የቀን ክልል: ' . $period_text,
+        1,
+        $colCount2
+    );
+
+    $headers2 = ['#', 'ተጠቃሚ/መዝጋቢ', 'የኢትዮጵያ ቀን', 'የኢትዮጵያ ሰዓት', 'የምርት ስም', 'ብዛት', 'መለኪያ', 'ምንጭ', 'ማስታወሻ', 'የተመዘገበበት ቀን (Gregorian)'];
+    foreach ($headers2 as $i => $label) {
+        $sheet2->setCellValue([$i + 1, $nextRow2], $label);
+    }
+    styleExcelHeaderRow($sheet2, $nextRow2, $colCount2);
+    $dataStartRow2 = $nextRow2 + 1;
+    $row2 = $dataStartRow2;
+
+    if (!empty($stock_logs)) {
+        $counter = 1;
+        foreach ($stock_logs as $log) {
+            $eth_log = getEthiopianDate($log['date_added']);
+            $eth_time = get_ethiopian_time_display($log['date_added']);
+            $is_positive = ($log['quantity'] >= 0);
+            $qtyColor = $is_positive ? '15803D' : 'DC2626';
+
+            $sheet2->setCellValue([1, $row2], $counter++);
+            $sheet2->setCellValue([2, $row2], $log['seller_full_name']);
+            $sheet2->setCellValue([3, $row2], $eth_log['formatted']);
+            $sheet2->setCellValue([4, $row2], $eth_time);
+            $sheet2->setCellValue([5, $row2], $log['item_name']);
+            $sheet2->setCellValue([6, $row2], (float)$log['quantity']);
+            $sheet2->setCellValue([7, $row2], $log['unit'] ?? 'pcs');
+            $sheet2->setCellValue([8, $row2], getSourceDisplayName($log['source'] ?? '-'));
+            $sheet2->setCellValue([9, $row2], $log['notes'] ?? '-');
+            $sheet2->setCellValue([10, $row2], date('Y-m-d h:i A', strtotime($log['date_added'])));
+
+            $sheet2->getStyle([6, $row2])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet2->getStyle([6, $row2])->getFont()->setBold(true)->getColor()->setRGB($qtyColor);
+
+            styleExcelDataRow($sheet2, $row2, $colCount2, ($row2 % 2 === 0));
+            $row2++;
+        }
+    } else {
+        $sheet2->mergeCells([1, $row2, $colCount2, $row2]);
+        $sheet2->setCellValue([1, $row2], 'ምንም data አልተገኘም');
+        $sheet2->getStyle([1, $row2])->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $row2++;
+    }
+
+    $sheet2->freezePane([1, $dataStartRow2]);
+
+    // Set first sheet active
+    $spreadsheet->setActiveSheetIndex(0);
+
+    downloadExcelSpreadsheet($spreadsheet, 'stock_inflow_report_' . date('Y-m-d'));
 }
 ?>
 <!DOCTYPE html>
@@ -372,7 +456,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     <meta name="theme-color" content="#4361ee">
     <link rel="icon" type="image/jpg" href="image/photo_2026-01-12_07-44-10.jpg">
     <title>የስቶክ ገቢ እና እንቅስቃሴ ሪፖርት - አለልቱ ፖስ</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         :root {
             --primary: #4361ee;
@@ -403,8 +487,16 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             -webkit-tap-highlight-color: transparent;
+        }
+
+        body, input, select, button, textarea {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        .fa, .fas, .far, .fal, .fad, .fab, [class*="fa-"] {
+            font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands", "FontAwesome" !important;
+            font-style: normal;
         }
 
         body {
@@ -1003,7 +1095,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     <!-- Product Filter -->
                     <div class="form-group">
                         <label>የምርት ስም</label>
-                        <select name="product_name" class="form-control">
+                        <select name="product_name" class="form-control" onchange="this.form.submit()">
                             <option value="">-- ሁሉም ምርቶች --</option>
                             <?php foreach ($available_products as $pname): ?>
                                 <option value="<?php echo htmlspecialchars($pname); ?>" <?php echo ($selected_product === $pname) ? 'selected' : ''; ?>>
@@ -1121,7 +1213,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     <div class="log-meta-bar">
                         <span><i class="fas fa-user"></i> <?php echo htmlspecialchars($log['seller_full_name']); ?></span>
                         <span class="badge-source"><i class="fas fa-truck"></i> <?php echo getSourceDisplayName($log['source'] ?? '-'); ?></span>
-                        <span><i class="fas fa-calendar"></i> <?php echo $eth['formatted']; ?></span>
+                        <span><i class="fas fa-calendar"></i> <?php echo $eth['formatted']; ?> (<?php echo get_ethiopian_time_display($log['date_added']); ?>)</span>
                     </div>
 
                     <?php if (!empty($log['notes'])): ?>
@@ -1183,7 +1275,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             </div>
 
             <!-- 2. Detailed Stock Inflow Table -->
-            <div class="card">
+            <div class="card" style="margin-top: 24px;">
                 <div class="card-header">
                     <div class="card-title">
                         <i class="fas fa-list-ul" style="color: var(--primary);"></i> 
@@ -1201,13 +1293,13 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                 <th>#</th>
                                 <th>ተጠቃሚ / መዝጋቢ</th>
                                 <th>የኢትዮጵያ ቀን</th>
-                                <th>ሰዓት</th>
+                                <th>የኢትዮጵያ ሰዓት</th>
                                 <th>የምርት ስም</th>
                                 <th>ብዛት</th>
                                 <th>መለኪያ</th>
                                 <th>ምንጭ</th>
                                 <th>ማስታወሻ</th>
-                                <th>የተመዘገበበት ቀን</th>
+                                <th>የተመዘገበበት ቀን (Gregorian)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1222,7 +1314,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                     <td><?php echo $n++; ?></td>
                                     <td><strong><?php echo htmlspecialchars($log['seller_full_name']); ?></strong></td>
                                     <td><?php echo $eth['formatted']; ?></td>
-                                    <td style="color: var(--text-muted);"><?php echo date('h:i A', strtotime($log['date_added'])); ?></td>
+                                    <td style="color: var(--primary); font-weight: 600;"><?php echo get_ethiopian_time_display($log['date_added']); ?></td>
                                     <td><strong><?php echo htmlspecialchars($log['item_name']); ?></strong></td>
                                     <td style="color: <?php echo $is_positive ? 'var(--success)' : 'var(--danger)'; ?>; font-weight: 800;">
                                         <?php echo ($is_positive ? '+' : '') . number_format($log['quantity'], 2); ?>
@@ -1230,7 +1322,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                     <td><span class="badge-unit"><?php echo htmlspecialchars($log['unit'] ?? 'pcs'); ?></span></td>
                                     <td><span class="badge-source"><?php echo getSourceDisplayName($log['source'] ?? '-'); ?></span></td>
                                     <td><?php echo !empty($log['notes']) ? htmlspecialchars($log['notes']) : '-'; ?></td>
-                                    <td style="color: var(--text-muted); font-size: 12.5px;"><?php echo date('Y-m-d H:i', strtotime($log['date_added'])); ?></td>
+                                    <td style="color: var(--text-muted); font-size: 12.5px;"><?php echo date('M d, Y h:i A', strtotime($log['date_added'])); ?></td>
                                 </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>

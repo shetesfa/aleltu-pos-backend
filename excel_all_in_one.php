@@ -27,10 +27,10 @@ if ($user_role == 'super_admin' && isset($_GET['branch_id']) && $_GET['branch_id
 
 // Database connection using PDO
 try {
-    $host = 'localhost';
-    $db_name = 'aleltu';
-    $username = 'root';
-    $password = '';
+    $host = getenv('DB_HOST') ?: '127.0.0.1';
+    $db_name = getenv('DB_NAME') ?: 'aleltu';
+    $username = getenv('DB_USER') ?: 'root';
+    $password = getenv('DB_PASS') !== false ? getenv('DB_PASS') : '';
     
     $db = new PDO("mysql:host=$host;dbname=$db_name;charset=utf8mb4", $username, $password);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -129,6 +129,104 @@ if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time)
         'perm' => $totalPermWithdrawals,
         'net' => $netProfit
     ]));
+}
+
+// ========== NATIVE PHPSPREADSHEET EXCEL EXPORT (.xlsx) ==========
+if (isset($_GET['export']) && $_GET['export'] === 'excel') {
+    if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+        require_once __DIR__ . '/vendor/autoload.php';
+    }
+
+    $stmt = $db->prepare("SELECT * FROM excel_data 
+                          WHERE branch_id = ? 
+                            AND (item_name != '' OR quantity != '' OR total_cost != '' OR total_selling != '')
+                          ORDER BY `row_number` ASC");
+    $stmt->execute([$branch_id]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('የእቃዎች ዝርዝር');
+
+    $colCount = 10;
+    $widths = [8, 24, 14, 16, 18, 16, 16, 18, 18, 16];
+    foreach ($widths as $i => $w) {
+        $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+        $sheet->getColumnDimension($colLetter)->setWidth($w);
+    }
+
+    $nextRow = renderExcelBannerReal($sheet, 'የእቃዎች ዝርዝር እና ትርፍ መዝገብ (All In One Excel)', $branch_name, 'ቀን: ' . date('Y-m-d'), 1, $colCount);
+
+    $headers = ['#', 'የእቃው አይነት', 'ብዛት', 'የተገዛበት ዋጋ', 'ጠቅላላ ወጪ', 'የተሸጠበት ዋጋ', 'የአንዱ ትርፍ', 'ጠቅላላ ሽያጭ', 'ጠቅላላ ትርፍ', 'ቀን'];
+    foreach ($headers as $i => $label) {
+        $sheet->setCellValue([$i + 1, $nextRow], $label);
+    }
+    styleExcelHeaderRow($sheet, $nextRow, $colCount);
+    $r = $nextRow + 1;
+
+    $totCost = 0;
+    $totSelling = 0;
+    $totProfit = 0;
+
+    if (!empty($rows)) {
+        foreach ($rows as $row) {
+            $qty = (float)($row['quantity'] ?? 0);
+            $buy = (float)($row['buying_price'] ?? 0);
+            $cost = (float)($row['total_cost'] ?? 0);
+            $sell = (float)($row['selling_price'] ?? 0);
+            $unitProfit = (float)($row['profit_per_unit'] ?? 0);
+            $totalSell = (float)($row['total_selling'] ?? 0);
+            $totalProfit = (float)($row['total_profit'] ?? 0);
+
+            $totCost += $cost;
+            $totSelling += $totalSell;
+            $totProfit += $totalProfit;
+
+            $sheet->setCellValue([1, $r], (int)$row['row_number']);
+            $sheet->setCellValue([2, $r], $row['item_name']);
+            $sheet->setCellValue([3, $r], $qty);
+            $sheet->setCellValue([4, $r], $buy);
+            $sheet->setCellValue([5, $r], $cost);
+            $sheet->setCellValue([6, $r], $sell);
+            $sheet->setCellValue([7, $r], $unitProfit);
+            $sheet->setCellValue([8, $r], $totalSell);
+            $sheet->setCellValue([9, $r], $totalProfit);
+            $sheet->setCellValue([10, $r], $row['transaction_date']);
+
+            $sheet->getStyle([3, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([4, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([5, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([6, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([7, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([8, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([9, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+
+            styleExcelDataRow($sheet, $r, $colCount, ($r % 2 === 0));
+            $r++;
+        }
+
+        // Grand Total row
+        $sheet->setCellValue([1, $r], 'ጠቅላላ ድምር (TOTAL)');
+        $sheet->setCellValue([5, $r], (float)$totCost);
+        $sheet->setCellValue([8, $r], (float)$totSelling);
+        $sheet->setCellValue([9, $r], (float)$totProfit);
+
+        for ($c = 1; $c <= $colCount; $c++) {
+            $cell = $sheet->getCell([$c, $r]);
+            $cell->getStyle()->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F59E0B');
+            $cell->getStyle()->getFont()->setBold(true)->getColor()->setRGB('0F172A');
+            if ($c == 5 || $c == 8 || $c == 9) {
+                $cell->getStyle()->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+        }
+    } else {
+        $sheet->mergeCells([1, $r, $colCount, $r]);
+        $sheet->setCellValue([1, $r], 'ምንም የተሞላ መረጃ አልተገኘም');
+        $sheet->getStyle([1, $r])->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+    }
+
+    downloadExcelSpreadsheet($spreadsheet, 'excel_data_branch_' . $branch_id . '_' . date('Y-m-d'));
+    exit;
 }
 
 // ========== HANDLE AJAX ACTIONS ==========
@@ -818,7 +916,7 @@ foreach ($data as $d) {
     <div class="toolbar">
         <button class="btn btn-success" onclick="saveWorkbook()"><i class="fas fa-save"></i> አስቀምጥ</button>
         <button class="btn" onclick="calculateCurrentPageOnly()"><i class="fas fa-calculator"></i> Calculate</button>
-        <button class="btn" onclick="exportToExcel()"><i class="fas fa-file-excel"></i> Excel</button>
+        <a href="?export=excel<?php echo ($user_role === 'super_admin' ? '&branch_id=' . $branch_id : ''); ?>" class="btn" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;"><i class="fas fa-file-excel"></i> Excel (.xlsx)</a>
         <button class="btn" onclick="window.print()"><i class="fas fa-print"></i> አትም</button>
         <button class="btn btn-danger" onclick="clearAllData()"><i class="fas fa-trash"></i> Clear</button>
         
@@ -1123,36 +1221,7 @@ foreach ($data as $d) {
         }
         
         function exportToExcel() {
-            const table = document.getElementById('excelTable');
-            let excelContent = `<html><head><meta charset="UTF-8"><title>Excel Export - <?php echo htmlspecialchars($branch_name); ?></title></head><body>
-                <h2>የእቃዎች ዝርዝር - <?php echo htmlspecialchars($branch_name); ?></h2>
-                <p>የተፈጠረበት ቀን: ${new Date().toLocaleString()}</p>
-                <table border="1" cellpadding="5" cellspacing="0">`;
-            
-            const headers = ['#', 'የእቃው አይነት', 'ብዛት', 'የተገዛበት', 'ጠቅላላ ወጪ', 'የተሸጠበት', 'የአንዱ ትርፍ', 'ጠቅላላ ሽያጭ', 'ትርፍ', 'ቀን'];
-            excelContent += '<thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
-            
-            const rows = document.querySelectorAll('tbody tr');
-            rows.forEach(row => {
-                excelContent += '<tr>';
-                const cells = row.querySelectorAll('td');
-                cells.forEach(cell => {
-                    const input = cell.querySelector('input');
-                    const value = input ? input.value : cell.textContent.trim();
-                    excelContent += `<td>${value || ''}</td>`;
-                });
-                excelContent += '</tr>';
-            });
-            
-            excelContent += '</tbody></table></body></html>';
-            
-            const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `excel_branch_<?php echo $branch_id; ?>_${new Date().toISOString().slice(0,10)}.xlsx`;
-            link.click();
-            URL.revokeObjectURL(link.href);
-            showToast('Excel File Downloaded');
+            window.location.href = 'excel_all_in_one.php?export=excel<?php echo ($user_role === "super_admin" ? "&branch_id=" . $branch_id : ""); ?>';
         }
         
         function goToPage(page) {

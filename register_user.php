@@ -34,7 +34,7 @@ if (!validateCsrfToken($_POST['csrf_token'] ?? null)) {
         die('Invalid or expired request. Please go back and try again.');
     }
     $username        = trim($_POST['username'] ?? '');
-    $full_name       = mysqli_real_escape_string($conn, trim($_POST['full_name'] ?? ''));
+    $full_name       = trim($_POST['full_name'] ?? '');
     $allowed_roles   = ['admin', 'manager', 'cashier', 'seller', 'boss', 'super_admin'];
     $role            = in_array($_POST['role'] ?? '', $allowed_roles, true) ? $_POST['role'] : 'seller';
     

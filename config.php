@@ -550,4 +550,63 @@ function getEthiopianDate($gregorianDate = null) {
         'short' => sprintf("%04d-%02d-%02d", $eth_year, $eth_month, $eth_day)
     ];
 }
+
+/**
+ * Convert Ethiopian Date (Year, Month, Day) to Gregorian 'YYYY-MM-DD'
+ */
+function ethiopianToGregorianDate($year, $month, $day) {
+    $year = (int)$year;
+    $month = (int)$month;
+    $day = (int)$day;
+    if ($year <= 0 || $month <= 0 || $day <= 0) return date('Y-m-d');
+    
+    // Julian Day Number for Ethiopian Date
+    $jdn = (1723856 + 365) + 365 * ($year - 1) + (int)($year / 4) + 30 * ($month - 1) + $day - 1;
+    
+    // JDN to Gregorian
+    $l = $jdn + 68569;
+    $n = (int)((4 * $l) / 146097);
+    $l = $l - (int)((146097 * $n + 3) / 4);
+    $i = (int)((4000 * ($l + 1)) / 1461001);
+    $l = $l - (int)((1461 * $i) / 4) + 31;
+    $j = (int)((80 * $l) / 2447);
+    $day_g = $l - (int)((2447 * $j) / 80);
+    $l = (int)($j / 11);
+    $month_g = $j + 2 - (12 * $l);
+    $year_g = 100 * ($n - 49) + $i + $l;
+    
+    return sprintf("%04d-%02d-%02d", $year_g, $month_g, $day_g);
+}
+
+/**
+ * Convert Gregorian Datetime to 12-Hour Ethiopian Time Display
+ */
+if (!function_exists('get_ethiopian_time_display')) {
+    function get_ethiopian_time_display($gregorian_datetime) {
+        if (!$gregorian_datetime) return '-';
+        try {
+            $dt = new DateTime($gregorian_datetime, new DateTimeZone('Africa/Addis_Ababa'));
+        } catch (Exception $e) {
+            return '-';
+        }
+        $hour24 = (int)$dt->format('G'); // 0-23
+        $min = $dt->format('i');
+        
+        // Ethiopian 12-hour calculation (6:00 AM Gregorian is 12:00 ጥዋት Ethiopian)
+        $eth_hour = ($hour24 + 6) % 12;
+        if ($eth_hour === 0) $eth_hour = 12;
+        
+        if ($hour24 >= 6 && $hour24 < 12) {
+            $period = 'ጥዋት';
+        } elseif ($hour24 >= 12 && $hour24 < 18) {
+            $period = 'ከሰዓት';
+        } elseif ($hour24 >= 18 && $hour24 < 24) {
+            $period = 'ማታ';
+        } else {
+            $period = 'ሌሊት';
+        }
+        
+        return "{$eth_hour}:{$min} {$period}";
+    }
+}
 ?>

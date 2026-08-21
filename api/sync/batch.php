@@ -80,17 +80,98 @@ foreach ($events as $event) {
         continue;
     }
 
-    // A cancellation is an audit report only: the sale was never accepted by
-    // the server, so no server stock or completed transaction is changed.
+    // A cancellation is an audit report: the sale was cancelled on the client.
+    // If the server previously received this sale, it rolls it back and restores inventory.
     if ($event_type === 'SALE_CANCELLED') {
         $payload_json = json_encode($event);
-        $cancel_log = mysqli_prepare($conn, "INSERT INTO sync_events (event_uuid, sale_uuid, device_uuid, event_type, payload, status) VALUES (?, ?, ?, 'SALE_CANCELLED', ?, 'SYNCED') ON DUPLICATE KEY UPDATE status='SYNCED'");
-        mysqli_stmt_bind_param($cancel_log, 'ssss', $event_uuid, $sale_uuid, $device_uuid, $payload_json);
+        $cancel_log = mysqli_prepare($conn, "INSERT INTO sync_events (event_uuid, sale_uuid, device_uuid, event_type, payload, status) VALUES (?, ?, ?, 'SALE_CANCELLED', ?, 'SYNCED') ON DUPLICATE KEY UPDATE payload=?, status='SYNCED'");
+        mysqli_stmt_bind_param($cancel_log, 'sssss', $event_uuid, $sale_uuid, $device_uuid, $payload_json, $payload_json);
         if (mysqli_stmt_execute($cancel_log)) {
             mysqli_stmt_close($cancel_log);
+
+            // If this sale had previously been inserted into transactions table, roll it back
+            if (!empty($sale_uuid)) {
+                $find_tx = mysqli_prepare($conn, "SELECT id, branch_id, total_amount, seller_name, seller_id FROM transactions WHERE sale_uuid = ? LIMIT 1");
+                if ($find_tx) {
+                    mysqli_stmt_bind_param($find_tx, 's', $sale_uuid);
+                    mysqli_stmt_execute($find_tx);
+                    $existing_tx_to_void = mysqli_fetch_assoc(mysqli_stmt_get_result($find_tx));
+                    mysqli_stmt_close($find_tx);
+
+                    if ($existing_tx_to_void) {
+                        mysqli_begin_transaction($conn);
+                        try {
+                            $tx_id = (int)$existing_tx_to_void['id'];
+                            $tx_branch = (int)$existing_tx_to_void['branch_id'];
+                            $cancel_reason = trim($event['cancel_reason'] ?? 'Offline Cancellation');
+                            $c_seller = trim($event['seller_name'] ?? $existing_tx_to_void['seller_name']);
+                            $s_id = intval($event['seller_id'] ?? $existing_tx_to_void['seller_id']);
+
+                            // 1. Fetch items from transaction_items table and restore stock
+                            $t_items_stmt = mysqli_prepare($conn, "SELECT product_name, quantity FROM transaction_items WHERE transaction_id = ?");
+                            if ($t_items_stmt) {
+                                mysqli_stmt_bind_param($t_items_stmt, 'i', $tx_id);
+                                mysqli_stmt_execute($t_items_stmt);
+                                $t_items_res = mysqli_stmt_get_result($t_items_stmt);
+                                while ($t_it = mysqli_fetch_assoc($t_items_res)) {
+                                    $it_name = trim($t_it['product_name'] ?? '');
+                                    $it_qty  = floatval($t_it['quantity'] ?? 0);
+                                    if (!empty($it_name) && $it_qty > 0) {
+                                        $rst = mysqli_prepare($conn, "UPDATE seller_inventory SET current_stock = current_stock + ?, last_updated = NOW() WHERE item_name = ? AND branch_id = ?");
+                                        if ($rst) {
+                                            mysqli_stmt_bind_param($rst, 'dsi', $it_qty, $it_name, $tx_branch);
+                                            mysqli_stmt_execute($rst);
+                                            mysqli_stmt_close($rst);
+                                        }
+
+                                        // Log stock restoration
+                                        $stk_log = mysqli_prepare($conn, "INSERT INTO stock_logs (seller_id, branch_id, seller_name, item_name, quantity, unit, source, added_by, date_added, notes) VALUES (?, ?, ?, ?, ?, 'pcs', 'SALE_CANCELLED_RESTORE', ?, NOW(), ?)");
+                                        if ($stk_log) {
+                                            $notes = "ኦፍላይን የተሰረዘ ሽያጭ: " . $cancel_reason;
+                                            mysqli_stmt_bind_param($stk_log, 'iissdss', $s_id, $tx_branch, $c_seller, $it_name, $it_qty, $c_seller, $notes);
+                                            mysqli_stmt_execute($stk_log);
+                                            mysqli_stmt_close($stk_log);
+                                        }
+                                    }
+                                }
+                                mysqli_stmt_close($t_items_stmt);
+                            }
+
+                            // 2. Delete transaction items and the transaction record
+                            $del_items = mysqli_prepare($conn, "DELETE FROM transaction_items WHERE transaction_id = ?");
+                            if ($del_items) {
+                                mysqli_stmt_bind_param($del_items, 'i', $tx_id);
+                                mysqli_stmt_execute($del_items);
+                                mysqli_stmt_close($del_items);
+                            }
+
+                            $del_tx = mysqli_prepare($conn, "DELETE FROM transactions WHERE id = ?");
+                            if ($del_tx) {
+                                mysqli_stmt_bind_param($del_tx, 'i', $tx_id);
+                                mysqli_stmt_execute($del_tx);
+                                mysqli_stmt_close($del_tx);
+                            }
+
+                            // 3. Log audit event
+                            $audit = mysqli_prepare($conn, "INSERT INTO audit_logs (event_type, user_id, user_name, device_uuid, branch_id, entity, entity_uuid, action, old_value, new_value, reason) VALUES ('SALE_CANCELLED', ?, ?, ?, ?, 'transactions', ?, 'DELETE_CANCELLED_SALE', ?, 'CANCELLED', ?)");
+                            if ($audit) {
+                                $old_val = "Transaction #" . $tx_id . " Total: " . $existing_tx_to_void['total_amount'];
+                                mysqli_stmt_bind_param($audit, 'ississs', $s_id, $c_seller, $device_uuid, $tx_branch, $sale_uuid, $old_val, $cancel_reason);
+                                mysqli_stmt_execute($audit);
+                                mysqli_stmt_close($audit);
+                            }
+
+                            mysqli_commit($conn);
+                        } catch (Exception $e) {
+                            mysqli_rollback($conn);
+                        }
+                    }
+                }
+            }
+
             $results[] = ['event_uuid' => $event_uuid, 'sale_uuid' => $sale_uuid,
                 'event_type' => 'SALE_CANCELLED', 'status' => 'SYNCED',
-                'message' => 'Cancellation report saved for administrator review'];
+                'message' => 'Cancellation report saved and verified'];
         } else {
             mysqli_stmt_close($cancel_log);
             $results[] = ['event_uuid' => $event_uuid, 'event_type' => 'SALE_CANCELLED',
@@ -159,6 +240,25 @@ foreach ($events as $event) {
             ];
         }
         continue;
+    }
+
+    // CHECK IF THIS SALE WAS CANCELLED LOCALLY
+    if (!empty($sale_uuid)) {
+        $chk_canc = mysqli_prepare($conn, "SELECT id FROM sync_events WHERE sale_uuid = ? AND event_type = 'SALE_CANCELLED' LIMIT 1");
+        mysqli_stmt_bind_param($chk_canc, 's', $sale_uuid);
+        mysqli_stmt_execute($chk_canc);
+        $was_cancelled = mysqli_fetch_assoc(mysqli_stmt_get_result($chk_canc));
+        mysqli_stmt_close($chk_canc);
+        if ($was_cancelled) {
+            $results[] = [
+                'event_uuid' => $event_uuid,
+                'sale_uuid'  => $sale_uuid,
+                'status'     => 'ALREADY_PROCESSED',
+                'code'       => 'SALE_CANCELLED_LOCALLY',
+                'message'    => 'Sale was cancelled locally and was not processed.'
+            ];
+            continue;
+        }
     }
 
     // REQUIREMENT #9: IDEMPOTENCY CHECK
@@ -317,7 +417,7 @@ foreach ($events as $event) {
         foreach ($validated_items as $vItem) {
             // Insert item
             $ins_item = mysqli_prepare($conn, "INSERT INTO transaction_items (transaction_id, event_uuid, product_id, product_name, quantity, unit_price, subtotal, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            mysqli_stmt_bind_param($ins_item, 'isiidddi', 
+            mysqli_stmt_bind_param($ins_item, 'isisdddi', 
                 $transaction_id, $event_uuid, $vItem['id'], $vItem['name'], 
                 $vItem['quantity'], $vItem['price'], $vItem['subtotal'], $branch_id
             );

@@ -127,6 +127,12 @@ class IndexedDBManager {
             request.onsuccess = (event) => {
                 this.db = event.target.result;
                 console.log('[IndexedDB] Database connected successfully');
+                // Request permanent storage lock (prevents browser from ever purging POS database)
+                if (navigator.storage && navigator.storage.persist) {
+                    navigator.storage.persist().then(persisted => {
+                        if (persisted) console.log('[IndexedDB] Storage persistence guaranteed by OS/Browser');
+                    }).catch(() => {});
+                }
                 resolve(this.db);
             };
 
@@ -464,25 +470,41 @@ class IndexedDBManager {
         });
     }
 
-    // Fetch Pending Outbox Events
+    // Fetch Pending Outbox Events (with cancellation guard)
     async getPendingOutbox() {
         await this.ensureReady();
         return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(['outbox'], 'readonly');
-            const req = tx.objectStore('outbox').getAll();
-            req.onsuccess = () => {
-                const events = req.result.filter(e => e.status === 'PENDING' || e.status === 'FAILED');
+            const tx = this.db.transaction(['outbox', 'sales'], 'readonly');
+            const outboxReq = tx.objectStore('outbox').getAll();
+            const salesReq = tx.objectStore('sales').getAll();
+            let events = [];
+            let sales = [];
+            outboxReq.onsuccess = () => { events = outboxReq.result || []; };
+            salesReq.onsuccess = () => { sales = salesReq.result || []; };
+            tx.oncomplete = () => {
+                const cancelledSaleUUIDs = new Set(
+                    sales.filter(s => s.status === 'CANCELLED').map(s => s.sale_uuid)
+                );
+                // Filter out any SALE event if the sale was cancelled locally
+                const pendingEvents = events.filter(e => {
+                    if (e.status !== 'PENDING' && e.status !== 'FAILED') return false;
+                    const eventSaleUUID = e.sale_uuid || e.entity_uuid || (e.payload && e.payload.sale_uuid);
+                    if (e.event_type === 'SALE' && cancelledSaleUUIDs.has(eventSaleUUID)) {
+                        return false;
+                    }
+                    return true;
+                });
                 // Sort by priority (CRITICAL first) then created_at
                 const priorityMap = { 'CRITICAL': 1, 'HIGH': 2, 'NORMAL': 3 };
-                events.sort((a, b) => {
+                pendingEvents.sort((a, b) => {
                     const pA = priorityMap[a.priority] || 9;
                     const pB = priorityMap[b.priority] || 9;
                     if (pA !== pB) return pA - pB;
                     return new Date(a.created_at) - new Date(b.created_at);
                 });
-                resolve(events);
+                resolve(pendingEvents);
             };
-            req.onerror = (err) => reject(err);
+            tx.onerror = (err) => reject(err);
         });
     }
 
@@ -558,109 +580,11 @@ class IndexedDBManager {
     // Cancel a local-only sale. The reason is mandatory and a cancellation
     // report is queued so an administrator can review it when online again.
     async cancelPendingSale(saleUUID, reason) {
-        await this.ensureReady();
-        const cleanReason = String(reason || '').trim();
-        if (!cleanReason) throw new Error('A cancellation reason is required.');
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(['sales', 'sale_items', 'seller_inventory', 'outbox'], 'readwrite');
-            const sales = tx.objectStore('sales');
-            const items = tx.objectStore('sale_items');
-            const inventory = tx.objectStore('seller_inventory');
-            const outbox = tx.objectStore('outbox');
-            const saleReq = sales.get(saleUUID);
-            saleReq.onsuccess = () => {
-                const sale = saleReq.result;
-                if (!sale || !['PENDING', 'FAILED', 'CONFLICT'].includes(sale.status)) {
-                    reject(new Error('Only a waiting or conflicted offline sale can be cancelled.'));
-                    return;
-                }
-                const itemReq = items.index('sale_uuid').getAll(saleUUID);
-                itemReq.onsuccess = () => {
-                    const cancelledAt = new Date().toISOString();
-                    const invReq = inventory.getAll();
-                    invReq.onsuccess = () => {
-                        for (const line of itemReq.result || []) {
-                            const match = invReq.result.find(row => row.id === line.product_id ||
-                                (row.item_name && line.product_name && row.item_name.toLowerCase() === line.product_name.toLowerCase()));
-                            if (match) {
-                                match.current_stock = parseFloat(match.current_stock || 0) + parseFloat(line.quantity || 0);
-                                match.quantity = match.current_stock;
-                                match.updated_at = cancelledAt;
-                                inventory.put(match);
-                            }
-                        }
-                        sale.status = 'CANCELLED';
-                        sale.cancel_reason = cleanReason;
-                        sale.cancelled_locally_at = cancelledAt;
-                        sales.put(sale);
-                        const allEvents = outbox.getAll();
-                        allEvents.onsuccess = () => {
-                            for (const event of allEvents.result || []) {
-                                if (event.sale_uuid === saleUUID && event.event_type === 'SALE') outbox.delete(event.event_uuid);
-                            }
-                            const eventUUID = this.generateUUID();
-                            outbox.put({
-                                event_uuid: eventUUID, event_type: 'SALE_CANCELLED', entity_type: 'transaction',
-                                entity_uuid: saleUUID, sale_uuid: saleUUID, priority: 'HIGH', status: 'PENDING',
-                                attempt_count: 0, created_at: cancelledAt, next_retry_at: cancelledAt,
-                                payload: { event_uuid: eventUUID, event_type: 'SALE_CANCELLED', sale_uuid: saleUUID,
-                                    seller_id: sale.seller_id, seller_name: sale.seller_name, branch_id: sale.branch_id,
-                                    device_uuid: sale.device_uuid, total_amount: sale.total_amount,
-                                    cancel_reason: cleanReason, cancelled_locally_at: cancelledAt,
-                                    items: itemReq.result || [] }
-                            });
-                        };
-                    };
-                };
-            };
-            tx.oncomplete = () => resolve(true);
-            tx.onerror = () => reject(tx.error);
-        });
+        return this.cancelQueuedSaleSafely(saleUUID, reason);
     }
 
-    // Small, durable cancellation operation used by the POS queue. It changes
-    // only the local queue state and creates the audit event in one transaction.
-    // The next inventory snapshot restores the authoritative server quantity.
     async cancelQueuedSale(saleUUID, reason) {
-        await this.ensureReady();
-        const cleanReason = String(reason || '').trim();
-        if (!cleanReason) throw new Error('A cancellation reason is required.');
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(['sales', 'outbox'], 'readwrite');
-            const sales = tx.objectStore('sales');
-            const outbox = tx.objectStore('outbox');
-            const saleReq = sales.get(saleUUID);
-            saleReq.onsuccess = () => {
-                const sale = saleReq.result;
-                if (!sale || !['PENDING', 'FAILED', 'CONFLICT'].includes(sale.status)) {
-                    reject(new Error('This sale is no longer waiting to sync.'));
-                    return;
-                }
-                const eventReq = outbox.getAll();
-                eventReq.onsuccess = () => {
-                    const now = new Date().toISOString();
-                    for (const event of eventReq.result || []) {
-                        if (event.sale_uuid === saleUUID && event.event_type === 'SALE') outbox.delete(event.event_uuid);
-                    }
-                    sale.status = 'CANCELLED';
-                    sale.cancel_reason = cleanReason;
-                    sale.cancelled_locally_at = now;
-                    sales.put(sale);
-                    const eventUUID = this.generateUUID();
-                    outbox.put({
-                        event_uuid: eventUUID, event_type: 'SALE_CANCELLED', entity_type: 'transaction',
-                        entity_uuid: saleUUID, sale_uuid: saleUUID, priority: 'HIGH', status: 'PENDING',
-                        attempt_count: 0, created_at: now, next_retry_at: now,
-                        payload: { event_uuid: eventUUID, event_type: 'SALE_CANCELLED', sale_uuid: saleUUID,
-                            seller_id: sale.seller_id, seller_name: sale.seller_name, branch_id: sale.branch_id,
-                            device_uuid: sale.device_uuid, total_amount: sale.total_amount,
-                            cancel_reason: cleanReason, cancelled_locally_at: now }
-                    });
-                };
-            };
-            tx.oncomplete = () => resolve(true);
-            tx.onerror = () => reject(tx.error || new Error('Could not cancel the local sale.'));
-        });
+        return this.cancelQueuedSaleSafely(saleUUID, reason);
     }
 
     // v2 avoids keeping a write transaction open while reading multiple stores.
@@ -694,14 +618,22 @@ class IndexedDBManager {
             const outbox = tx.objectStore('outbox');
             const inventory = tx.objectStore('seller_inventory');
 
+            // 1. Mark sale as CANCELLED with reason and timestamp
             const sale = { ...snapshot.sale, status: 'CANCELLED', cancel_reason: cleanReason, cancelled_locally_at: now };
             sales.put(sale);
+
+            // 2. Delete ALL pending SALE events for this sale from the outbox
             snapshot.events.forEach(event => {
-                if (event.sale_uuid === saleUUID && event.event_type === 'SALE') outbox.delete(event.event_uuid);
+                const eventSaleUUID = event.sale_uuid || event.entity_uuid || (event.payload && event.payload.sale_uuid);
+                if (eventSaleUUID === saleUUID && event.event_type === 'SALE') {
+                    outbox.delete(event.event_uuid);
+                }
             });
+
+            // 3. Restore inventory quantity locally
             snapshot.lines.forEach(line => {
                 const match = snapshot.inventory.find(row => row.id === line.product_id ||
-                    (row.item_name && line.product_name && row.item_name.toLowerCase() === line.product_name.toLowerCase()));
+                    (row.item_name && (line.product_name || line.name) && row.item_name.toLowerCase() === (line.product_name || line.name).toLowerCase()));
                 if (match) {
                     const restored = { ...match };
                     restored.current_stock = parseFloat(restored.current_stock || 0) + parseFloat(line.quantity || 0);
@@ -710,14 +642,32 @@ class IndexedDBManager {
                     inventory.put(restored);
                 }
             });
+
+            // 4. Create SALE_CANCELLED audit event in outbox
             outbox.put({
-                event_uuid: eventUUID, event_type: 'SALE_CANCELLED', entity_type: 'transaction',
-                entity_uuid: saleUUID, sale_uuid: saleUUID, priority: 'HIGH', status: 'PENDING',
-                attempt_count: 0, created_at: now, next_retry_at: now,
-                payload: { event_uuid: eventUUID, event_type: 'SALE_CANCELLED', sale_uuid: saleUUID,
-                    seller_id: sale.seller_id, seller_name: sale.seller_name, branch_id: sale.branch_id,
-                    device_uuid: sale.device_uuid, total_amount: sale.total_amount,
-                    cancel_reason: cleanReason, cancelled_locally_at: now, items: snapshot.lines }
+                event_uuid: eventUUID,
+                event_type: 'SALE_CANCELLED',
+                entity_type: 'transaction',
+                entity_uuid: saleUUID,
+                sale_uuid: saleUUID,
+                priority: 'HIGH',
+                status: 'PENDING',
+                attempt_count: 0,
+                created_at: now,
+                next_retry_at: now,
+                payload: {
+                    event_uuid: eventUUID,
+                    event_type: 'SALE_CANCELLED',
+                    sale_uuid: saleUUID,
+                    seller_id: sale.seller_id,
+                    seller_name: sale.seller_name,
+                    branch_id: sale.branch_id,
+                    device_uuid: sale.device_uuid,
+                    total_amount: sale.total_amount,
+                    cancel_reason: cleanReason,
+                    cancelled_locally_at: now,
+                    items: snapshot.lines
+                }
             });
             tx.oncomplete = () => resolve(true);
             tx.onerror = () => reject(tx.error || new Error('Could not save the cancellation.'));

@@ -95,6 +95,77 @@ $query = "SELECT * FROM item_edit_history
           WHERE branch_id = $current_branch_id 
           ORDER BY edited_at DESC";
 $result = mysqli_query($conn, $query);
+
+// ========== NATIVE PHPSPREADSHEET EXCEL EXPORT (.xlsx) ==========
+if (isset($_GET['export']) && $_GET['export'] === 'excel') {
+    if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+        require_once __DIR__ . '/vendor/autoload.php';
+    }
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('የእቃ ማስተካከያ ታሪክ');
+
+    $colCount = 10;
+    $widths = [8, 16, 14, 14, 22, 22, 16, 16, 16, 18];
+    foreach ($widths as $i => $w) {
+        $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+        $sheet->getColumnDimension($colLetter)->setWidth($w);
+    }
+
+    $dateBannerText = "የኢትዮጵያ ቀን: " . $current_ethiopian['full_date'] . "   |   Gregorian: " . date('Y-m-d');
+    $nextRow = renderExcelBannerReal($sheet, 'የእቃ ማስተካከያ ታሪክ (Item Edit History)', $current_branch_name, $dateBannerText, 1, $colCount);
+
+    $headers = ['#', 'የኢትዮጵያ ቀን', 'የኢትዮጵያ ሰዓት', 'ግሪጎሪያን ሰዓት', 'የነበረው ስም', 'አዲሱ ስም', 'የነበረው ዋጋ (ብር)', 'አዲሱ ዋጋ (ብር)', 'የዋጋ ልዩነት (ብር)', 'የቀየረው ሰው'];
+    foreach ($headers as $i => $label) {
+        $sheet->setCellValue([$i + 1, $nextRow], $label);
+    }
+    styleExcelHeaderRow($sheet, $nextRow, $colCount);
+    $r = $nextRow + 1;
+
+    $export_res = mysqli_query($conn, $query);
+    $count = 1;
+    if ($export_res && mysqli_num_rows($export_res) > 0) {
+        while ($row = mysqli_fetch_assoc($export_res)) {
+            $eth_date = gregorian_to_ethiopian($row['edited_at']);
+            $eth_time = get_ethiopian_time_display($row['edited_at']);
+            $greg_time = format_gregorian_time_12h($row['edited_at']);
+            $diff = (float)$row['new_price'] - (float)$row['old_price'];
+
+            $sheet->setCellValue([1, $r], $count++);
+            $sheet->setCellValue([2, $r], $eth_date['full_date']);
+            $sheet->setCellValue([3, $r], $eth_time);
+            $sheet->setCellValue([4, $r], $greg_time);
+            $sheet->setCellValue([5, $r], $row['old_name']);
+            $sheet->setCellValue([6, $r], $row['new_name']);
+            $sheet->setCellValue([7, $r], (float)$row['old_price']);
+            $sheet->setCellValue([8, $r], (float)$row['new_price']);
+            $sheet->setCellValue([9, $r], (float)$diff);
+            $sheet->setCellValue([10, $r], $row['edited_by']);
+
+            $sheet->getStyle([7, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([8, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle([9, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+
+            if ($diff > 0) {
+                $sheet->getStyle([9, $r])->getFont()->setBold(true)->getColor()->setRGB('059669');
+            } elseif ($diff < 0) {
+                $sheet->getStyle([9, $r])->getFont()->setBold(true)->getColor()->setRGB('DC2626');
+            }
+
+            styleExcelDataRow($sheet, $r, $colCount, ($r % 2 === 0));
+            $r++;
+        }
+    } else {
+        $sheet->mergeCells([1, $r, $colCount, $r]);
+        $sheet->setCellValue([1, $r], 'ምንም ማስተካከያ አልተገኘም');
+        $sheet->getStyle([1, $r])->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $r++;
+    }
+
+    downloadExcelSpreadsheet($spreadsheet, 'item_edit_history_' . $current_branch_id . '_' . date('Y-m-d'));
+    exit;
+}
 ?>
 
 <!DOCTYPE html>
@@ -628,9 +699,9 @@ $result = mysqli_query($conn, $query);
                 </span>
             </h1>
             <div class="action-buttons">
-                <button class="btn btn-success" onclick="exportToExcel()">
-                    <i class="fas fa-file-excel"></i> ኤክሴል
-                </button>
+                <a href="?export=excel" class="btn btn-success">
+                    <i class="fas fa-file-excel"></i> ኤክሴል (.xlsx)
+                </a>
                 <button class="btn btn-info" onclick="window.print()">
                     <i class="fas fa-print"></i> ማተም
                 </button>
@@ -756,53 +827,6 @@ $result = mysqli_query($conn, $query);
                 });
             });
         });
-
-        // Export to Excel function
-        function exportToExcel() {
-            const table = document.getElementById('historyTable');
-            const branchName = '<?php echo htmlspecialchars($current_branch_name); ?>';
-            const rows = table.querySelectorAll('tr');
-            let csv = [];
-            
-            // Add branch info header
-            csv.push(['ቅርንጫፍ: ' + branchName]);
-            csv.push(['የወጣበት ቀን: ' + new Date().toLocaleString()]);
-            csv.push([]);
-            
-            // Add table headers
-            const headers = [];
-            table.querySelectorAll('thead th').forEach(th => headers.push(th.innerText));
-            csv.push(headers);
-            
-            // Add table data
-            for (let i = 1; i < rows.length; i++) {
-                const row = [];
-                const cols = rows[i].querySelectorAll('td');
-                
-                for (let j = 0; j < cols.length; j++) {
-                    let text = cols[j].innerText.replace(/,/g, '');
-                    row.push(text);
-                }
-                
-                if (row.length > 0) {
-                    csv.push(row);
-                }
-            }
-            
-            // Create and download CSV
-            const csvContent = csv.map(row => row.join(',')).join('\n');
-            const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            
-            link.setAttribute('href', url);
-            link.setAttribute('download', `edit_history_${branchName}_${new Date().toISOString().slice(0,10)}.csv`);
-            link.style.visibility = 'hidden';
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
     </script>
 </body>
 </html>

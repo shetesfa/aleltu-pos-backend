@@ -91,11 +91,8 @@ try {
 
     $gregorian_date = date('Y-m-d H:i:s');
 
-    $eth_year = date('Y') - 8;
-    if (date('n') >= 9 || (date('n') == 9 && date('j') >= 11)) {
-        $eth_year++;
-    }
-    $ethiopian_date = $eth_year . '-' . str_pad(date('n'), 2, '0', STR_PAD_LEFT) . '-' . str_pad(date('j'), 2, '0', STR_PAD_LEFT);
+    $eth_data = getEthiopianDate();
+    $ethiopian_date = $eth_data['formatted'];
 
     $utc_hour = gmdate('G');
     $minute = gmdate('i');

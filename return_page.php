@@ -26,94 +26,19 @@ $user_branch = getUserBranch($conn, $user_id);
 $branch_id = getCurrentBranchId($conn, $user_id, $user_role);
 $branch_name = getCurrentBranchName($conn, $branch_id);
 
-// ========== ETHIOPIAN DATE FUNCTION ==========
-function get_ethiopian_date_time() {
-    try {
-        $gregorian_date = date('Y-m-d');
-        list($greg_year, $greg_month, $greg_day) = explode('-', $gregorian_date);
-        
-        $ethiopian_months = [
-            1 => ['start' => '09-11', 'name' => 'መስከረም'],
-            2 => ['start' => '10-11', 'name' => 'ጥቅምት'],
-            3 => ['start' => '11-10', 'name' => 'ኅዳር'],
-            4 => ['start' => '12-10', 'name' => 'ታኅሣሥ'],
-            5 => ['start' => '01-09', 'name' => 'ጥር'],
-            6 => ['start' => '02-08', 'name' => 'የካቲት'],
-            7 => ['start' => '03-10', 'name' => 'መጋቢት'],
-            8 => ['start' => '04-09', 'name' => 'ሚያዝያ'],
-            9 => ['start' => '05-09', 'name' => 'ግንቦት'],
-            10 => ['start' => '06-08', 'name' => 'ሰኔ'],
-            11 => ['start' => '07-08', 'name' => 'ሐምሌ'],
-            12 => ['start' => '08-07', 'name' => 'ነሐሴ'],
-            13 => ['start' => '09-06', 'name' => 'ጳጉሜ']
-        ];
-        
-        $ethiopian_year = $greg_year - 8;
-        if ($greg_month >= 9 || ($greg_month == 9 && $greg_day >= 11)) {
-            $ethiopian_year++;
-        }
-        
-        $current_date = $greg_month . '-' . $greg_day;
-        $eth_month = 1;
-        $eth_day = 1;
-        
-        for ($i = 1; $i <= 13; $i++) {
-            $month_start = $ethiopian_months[$i]['start'];
-            if ($current_date >= $month_start) {
-                if ($i == 13) {
-                    $next_year_first_month = $ethiopian_months[1]['start'];
-                    if ($current_date < $next_year_first_month) {
-                        $eth_month = $i;
-                        list($next_month, $next_day) = explode('-', $next_year_first_month);
-                        $greg_next_date = strtotime($greg_year . '-' . $next_month . '-' . $next_day);
-                        $greg_current = strtotime($greg_year . '-' . $greg_month . '-' . $greg_day);
-                        $eth_day = (int)(($greg_next_date - $greg_current) / (60 * 60 * 24));
-                        break;
-                    }
-                } else {
-                    $next_month_start = $ethiopian_months[$i + 1]['start'];
-                    if ($current_date < $next_month_start) {
-                        $eth_month = $i;
-                        list($start_month, $start_day) = explode('-', $month_start);
-                        $greg_start = strtotime($greg_year . '-' . $start_month . '-' . $start_day);
-                        $greg_current = strtotime($greg_year . '-' . $greg_month . '-' . $greg_day);
-                        $eth_day = (int)(($greg_current - $greg_start) / (60 * 60 * 24)) + 1;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        $timestamp = time();
-        $ethiopian_timestamp = $timestamp + (3 * 3600);
-        $eth_time_12h = date('h:i A', $ethiopian_timestamp);
-        
-        $eth_date = $ethiopian_year . '-' . str_pad($eth_month, 2, '0', STR_PAD_LEFT) . '-' . str_pad($eth_day, 2, '0', STR_PAD_LEFT);
-        
-        return [
-            'date' => $eth_date,
-            'time' => $eth_time_12h,
-            'full_datetime' => $eth_date . ' ' . $eth_time_12h,
-            'year' => $ethiopian_year,
-            'month' => $eth_month,
-            'day' => $eth_day,
-            'month_name' => $ethiopian_months[$eth_month]['name'] ?? ''
-        ];
-    } catch (Exception $e) {
-        error_log("Error in Ethiopian date function: " . $e->getMessage());
-        return [
-            'date' => date('Y-m-d'),
-            'time' => date('h:i A'),
-            'full_datetime' => date('Y-m-d H:i:s'),
-            'year' => date('Y'),
-            'month' => date('m'),
-            'day' => date('d'),
-            'month_name' => ''
-        ];
-    }
-}
-
-$ethiopian_datetime = get_ethiopian_date_time();
+// ========== ETHIOPIAN DATE & TIME (JDN Standard) ==========
+$eth_today = getEthiopianDate(date('Y-m-d'));
+$eth_today_display = $eth_today['formatted'];
+$eth_time_display = get_ethiopian_time_display(date('Y-m-d H:i:s'));
+$ethiopian_datetime = [
+    'date' => $eth_today['year'] . '-' . str_pad($eth_today['month'], 2, '0', STR_PAD_LEFT) . '-' . str_pad($eth_today['day'], 2, '0', STR_PAD_LEFT),
+    'time' => $eth_time_display,
+    'full_datetime' => $eth_today_display . ' ' . $eth_time_display,
+    'year' => $eth_today['year'],
+    'month' => $eth_today['month'],
+    'day' => $eth_today['day'],
+    'month_name' => $eth_today['month_name']
+];
 
 // ========== GET ALL PRODUCTS WITH STOCK - FIXED FOR ONLY_FULL_GROUP_BY ==========
 // First check if is_active column exists
@@ -365,7 +290,7 @@ function format_gregorian_datetime_12hr($datetime) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <link rel="icon" type="image/jpg" href="image/photo_2026-01-12_07-44-10.jpg">
     <title>እቃ መመለሻ - <?php echo htmlspecialchars($branch_name); ?></title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         /* ========== MODERN CSS VARIABLES ========== */
         :root {
@@ -389,7 +314,15 @@ function format_gregorian_datetime_12hr($datetime) {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+        }
+
+        body, button, input, select, textarea {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        i.fas, i.far, i.fab, i.fa {
+            font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands", "FontAwesome" !important;
+            font-style: normal;
         }
 
         body {
@@ -506,27 +439,22 @@ function format_gregorian_datetime_12hr($datetime) {
         /* Stats Cards */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(2, 1fr);
             gap: 20px;
-            margin: 25px 0;
+            max-width: 800px;
+            margin: 25px auto;
         }
 
-        @media (max-width: 768px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-                gap: 15px;
-            }
-        }
-
-        @media (max-width: 480px) {
+        @media (max-width: 600px) {
             .stats-grid {
                 grid-template-columns: 1fr;
+                gap: 15px;
             }
         }
 
         .stat-card {
             background: white;
-            border-radius: 12px;
+            border-radius: 15px;
             padding: 20px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
             transition: transform 0.3s;
@@ -579,25 +507,19 @@ function format_gregorian_datetime_12hr($datetime) {
 
         /* Main Grid */
         .main-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 25px;
+            display: flex;
+            justify-content: center;
             margin-bottom: 30px;
-        }
-
-        @media (max-width: 1000px) {
-            .main-grid {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
         }
 
         /* Form Panel */
         .form-panel {
             background: white;
-            border-radius: 12px;
-            padding: 25px;
+            border-radius: 15px;
+            padding: 30px;
             box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 800px;
         }
 
         .panel-title {
@@ -829,29 +751,47 @@ function format_gregorian_datetime_12hr($datetime) {
             display: block;
         }
 
+        /* Responsive Table */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 10px;
+            box-shadow: inset 0 0 0 1px #e2e8f0;
+            background: white;
+        }
+
         .history-table {
             width: 100%;
             border-collapse: collapse;
+            min-width: 620px;
         }
 
         .history-table th {
             text-align: left;
-            padding: 12px;
-            background: #f8f9fa;
-            color: #2c3e50;
-            font-weight: 600;
+            padding: 12px 14px;
+            background: #f8fafc;
+            color: #1e293b;
+            font-weight: 700;
             font-size: 13px;
-            border-bottom: 2px solid #dee2e6;
+            border-bottom: 2px solid #e2e8f0;
+            white-space: nowrap;
         }
 
         .history-table td {
-            padding: 12px;
-            border-bottom: 1px solid #ecf0f1;
-            color: #2c3e50;
+            padding: 12px 14px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+            font-size: 14px;
+            vertical-align: middle;
+        }
+
+        .history-table tr:last-child td {
+            border-bottom: none;
         }
 
         .history-table tr:hover {
-            background: #f8f9ff;
+            background: #f8faff;
         }
 
         .reason-badge {
@@ -866,6 +806,7 @@ function format_gregorian_datetime_12hr($datetime) {
         .time-badge {
             font-size: 12px;
             color: #7f8c8d;
+            white-space: nowrap;
         }
 
         .gregorian-time {
@@ -913,106 +854,313 @@ function format_gregorian_datetime_12hr($datetime) {
             border: 2px solid #f5c6cb;
         }
 
-        .nav-buttons {
+        .top-nav-bar {
             display: flex;
-            gap: 10px;
-            margin-top: 20px;
+            gap: 12px;
+            margin-bottom: 20px;
             flex-wrap: wrap;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
         }
 
         .nav-btn {
-            padding: 12px 20px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            padding: 10px 18px;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
-            display: flex;
+            font-size: 14px;
+            display: inline-flex;
             align-items: center;
             gap: 8px;
-            transition: all 0.3s;
+            transition: all 0.3s ease;
             cursor: pointer;
             border: none;
+            min-height: 42px;
+        }
+
+        .nav-btn.primary {
+            background: linear-gradient(135deg, #4361ee, #3a0ca3);
+        }
+
+        .nav-btn.secondary {
+            background: linear-gradient(135deg, #4b5563, #374151);
+        }
+
+        .nav-btn.danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            margin-left: auto;
         }
 
         .nav-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
-        .nav-btn.secondary {
-            background: linear-gradient(135deg, #95a5a6, #7f8c8d);
+        /* ========== COMPREHENSIVE RESPONSIVE MEDIA QUERIES ========== */
+        @media (max-width: 992px) {
+            body {
+                padding: 15px;
+            }
+            .form-panel, .history-panel {
+                padding: 22px;
+            }
         }
 
         @media (max-width: 768px) {
+            body {
+                padding: 12px;
+            }
+
+            .container {
+                width: 100%;
+            }
+
+            .top-nav-bar {
+                padding: 10px;
+                gap: 8px;
+                margin-bottom: 15px;
+            }
+
+            .nav-btn {
+                flex: 1 1 calc(50% - 6px);
+                justify-content: center;
+                padding: 10px 12px;
+                font-size: 13px;
+                min-height: 42px;
+            }
+
+            .nav-btn.danger {
+                flex: 1 1 100%;
+                margin-left: 0;
+            }
+
             .branch-header {
                 padding: 15px;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 12px;
+                border-radius: 12px 12px 0 0;
             }
-            
+
             .branch-info {
-                flex-wrap: wrap;
+                gap: 12px;
             }
-            
+
             .branch-icon {
                 width: 45px;
                 height: 45px;
-                font-size: 22px;
+                font-size: 20px;
+                flex-shrink: 0;
             }
-            
+
             .branch-details h2 {
                 font-size: 18px;
             }
-            
-            .stat-value {
-                font-size: 22px;
+
+            .branch-details p {
+                font-size: 13px;
             }
-            
-            .form-panel, .history-panel {
-                padding: 20px;
+
+            .ethiopian-time {
+                align-self: flex-start;
+                font-size: 13px;
+                padding: 6px 12px;
             }
-            
-            .panel-title {
-                font-size: 18px;
+
+            .user-info {
+                justify-content: space-between;
+                font-size: 13px;
+                padding: 8px 15px;
             }
-            
+
+            .ethiopian-date-display {
+                padding: 12px 15px;
+                margin-bottom: 15px;
+            }
+
             .date-value {
                 font-size: 16px;
             }
-            
-            .history-table th, .history-table td {
-                padding: 8px;
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+                margin: 15px auto;
+            }
+
+            .stat-card {
+                padding: 14px;
+            }
+
+            .stat-title {
                 font-size: 12px;
+            }
+
+            .stat-value {
+                font-size: 22px;
+            }
+
+            .stat-icon {
+                width: 34px;
+                height: 34px;
+                font-size: 15px;
+            }
+
+            .form-panel, .history-panel {
+                padding: 18px 14px;
+                border-radius: 12px;
+            }
+
+            .panel-title {
+                font-size: 17px;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+            }
+
+            .form-group {
+                margin-bottom: 15px;
+            }
+
+            .form-group label {
+                font-size: 14px;
+            }
+
+            .form-control, select, input, textarea {
+                padding: 12px 14px;
+                font-size: 16px; /* 16px prevents iOS Safari auto-zoom */
+                border-radius: 8px;
+            }
+
+            .btn-return {
+                padding: 15px;
+                font-size: 16px;
+                border-radius: 8px;
+            }
+
+            .history-table th, .history-table td {
+                padding: 10px 12px;
+                font-size: 13px;
             }
         }
 
         @media (max-width: 480px) {
             body {
-                padding: 10px;
+                padding: 8px;
             }
-            
-            .ethiopian-date-display {
+
+            .top-nav-bar {
+                padding: 8px;
+                gap: 6px;
+                border-radius: 10px;
+            }
+
+            .nav-btn {
+                padding: 8px 10px;
+                font-size: 12px;
+                min-height: 38px;
+                border-radius: 6px;
+            }
+
+            .branch-header {
                 padding: 12px;
             }
-            
-            .form-control, select, input, textarea {
-                padding: 12px;
-                font-size: 14px;
-            }
-            
-            .btn-return {
-                padding: 14px;
+
+            .branch-details h2 {
                 font-size: 16px;
             }
-            
-            .nav-btn {
-                padding: 10px 15px;
+
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                margin: 12px auto;
+            }
+
+            .stat-card {
+                padding: 10px 12px;
+            }
+
+            .stat-value {
+                font-size: 18px;
+            }
+
+            .stat-sub {
+                font-size: 11px;
+            }
+
+            .ethiopian-date-display {
+                padding: 10px 12px;
+                gap: 8px;
+            }
+
+            .ethiopian-date-display i {
+                font-size: 18px;
+            }
+
+            .date-label {
+                font-size: 10px;
+            }
+
+            .date-value {
+                font-size: 14px;
+            }
+
+            .form-panel, .history-panel {
+                padding: 14px 10px;
+                border-radius: 10px;
+            }
+
+            .panel-title {
+                font-size: 15px;
+            }
+
+            .stock-info {
+                padding: 10px 12px;
+            }
+
+            .stock-value {
+                font-size: 18px;
+            }
+
+            .stock-warning {
+                padding: 10px 12px;
                 font-size: 13px;
+            }
+
+            .btn-return {
+                padding: 13px;
+                font-size: 15px;
+            }
+
+            .history-table th, .history-table td {
+                padding: 8px 10px;
+                font-size: 12px;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Upper Navigation Bar -->
+        <div class="top-nav-bar">
+            <a href="seller_pos.php<?php echo ($user_role == 'super_admin' && isset($_GET['branch_id'])) ? '?branch_id=' . $_GET['branch_id'] : ''; ?>" class="nav-btn primary">
+                <i class="fas fa-store"></i> ወደ መሸጫ ተመለስ
+            </a>
+            <a href="seller_receive_stock.php<?php echo ($user_role == 'super_admin' && isset($_GET['branch_id'])) ? '?branch_id=' . $_GET['branch_id'] : ''; ?>" class="nav-btn secondary">
+                <i class="fas fa-truck-loading"></i> ክምችት መቀበል
+            </a>
+            <button class="nav-btn secondary" onclick="window.print()">
+                <i class="fas fa-print"></i> ማተም
+            </button>
+            <button class="nav-btn danger" onclick="logout()">
+                <i class="fas fa-sign-out-alt"></i> ውጣ
+            </button>
+        </div>
+
         <!-- Branch Header -->
         <div class="branch-header">
             <div class="branch-info">
@@ -1044,11 +1192,15 @@ function format_gregorian_datetime_12hr($datetime) {
         </div>
 
         <!-- Ethiopian Date Display -->
-        <div class="ethiopian-date-display">
+        <div class="ethiopian-date-display" style="max-width: 800px; margin: 0 auto 20px auto;">
             <i class="fas fa-calendar-alt"></i>
             <div class="date-info">
                 <div class="date-label">የኢትዮጵያ ቀን</div>
-                <div class="date-value"><?php echo $ethiopian_datetime['month_name'] . ' ' . $ethiopian_datetime['day'] . ', ' . $ethiopian_datetime['year']; ?></div>
+                <div class="date-value"><?php echo $eth_today_display; ?></div>
+            </div>
+            <div class="date-info" style="text-align: right;">
+                <div class="date-label">የኢትዮጵያ ሰዓት</div>
+                <div class="date-value"><?php echo $eth_time_display; ?></div>
             </div>
         </div>
 
@@ -1056,38 +1208,20 @@ function format_gregorian_datetime_12hr($datetime) {
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-title">ዛሬ የተመለሱ</span>
-                    <div class="stat-icon today"><i class="fas fa-undo"></i></div>
-                </div>
-                <div class="stat-value"><?php echo $total_returns_today; ?></div>
-                <div class="stat-sub">ጊዜ</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-title">ዛሬ ጠቅላላ ብዛት</span>
-                    <div class="stat-icon quantity"><i class="fas fa-cubes"></i></div>
-                </div>
-                <div class="stat-value"><?php echo number_format($total_quantity_today, 1); ?></div>
-                <div class="stat-sub">ክፍሎች</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-title">አጠቃላይ ታሪክ</span>
+                    <span class="stat-title">ጠቅላላ የተመለሱ</span>
                     <div class="stat-icon total"><i class="fas fa-history"></i></div>
                 </div>
-                <div class="stat-value"><?php echo $total_returns_all; ?></div>
-                <div class="stat-sub">ጊዜ</div>
+                <div class="stat-value"><?php echo number_format($total_returns_all); ?></div>
+                <div class="stat-sub">ጊዜ የተደረገ</div>
             </div>
             
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-title">አጠቃላይ ብዛት</span>
-                    <div class="stat-icon items"><i class="fas fa-boxes"></i></div>
+                    <span class="stat-title">ጠቅላላ የተመለሰ ብዛት</span>
+                    <div class="stat-icon quantity"><i class="fas fa-cubes"></i></div>
                 </div>
-                <div class="stat-value"><?php echo number_format($total_quantity_all, 1); ?></div>
-                <div class="stat-sub">ክፍሎች</div>
+                <div class="stat-value"><?php echo ($total_quantity_all == (int)$total_quantity_all) ? number_format($total_quantity_all, 0) : number_format($total_quantity_all, 2); ?></div>
+                <div class="stat-sub">ጠቅላላ እቃዎች</div>
             </div>
         </div>
 
@@ -1104,9 +1238,8 @@ function format_gregorian_datetime_12hr($datetime) {
             </div>
         <?php endif; ?>
 
-        <!-- Main Grid -->
+        <!-- Main Grid: Return Form -->
         <div class="main-grid">
-            <!-- Left Panel: Return Form -->
             <div class="form-panel">
                 <div class="panel-title">
                     <i class="fas fa-undo-alt"></i>
@@ -1168,89 +1301,53 @@ function format_gregorian_datetime_12hr($datetime) {
                     </button>
                 </form>
             </div>
-
-            <!-- Right Panel: Today's Returns -->
-            <div class="history-panel">
-                <div class="panel-title">
-                    <i class="fas fa-calendar-day"></i>
-                    የዛሬ ተመላሾች
-                </div>
-
-                <?php if(!empty($today_returns)): ?>
-                    <div style="overflow-x: auto;">
-                        <table class="history-table">
-                            <thead>
-                                <tr>
-                                    <th>እቃ</th>
-                                    <th>መጠን</th>
-                                    <th>ምክንያት</th>
-                                    <th>ሰዓት</th>
-                                    <th>ሻጭ</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach($today_returns as $return): ?>
-                                <tr>
-                                    <td><strong><?php echo safe_html($return['product_name']); ?></strong></td>
-                                    <td><?php echo $return['quantity'] . ' ' . $return['unit']; ?></td>
-                                    <td>
-                                        <?php if(!empty($return['reason'])): ?>
-                                            <span class="reason-badge"><?php echo safe_html($return['reason']); ?></span>
-                                        <?php else: ?>
-                                            -
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="time-badge"><?php echo date('h:i A', strtotime($return['gregorian_date'])); ?></td>
-                                    <td><?php echo safe_html($return['seller_name']); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php else: ?>
-                    <div class="empty-state">
-                        <i class="fas fa-box-open"></i>
-                        <p>ዛሬ ምንም እቃ አልተመለሰም</p>
-                    </div>
-                <?php endif; ?>
-            </div>
         </div>
 
         <!-- All Returns History -->
         <div class="history-panel">
             <div class="panel-title">
                 <i class="fas fa-history"></i>
-                ሁሉም ተመላሾች ታሪክ
+                የተመለሱ እቃዎች ሙሉ ታሪክ
             </div>
 
             <?php if(!empty($all_returns)): ?>
-                <div style="overflow-x: auto;">
+                <div class="table-responsive">
                     <table class="history-table">
                         <thead>
                             <tr>
-                                <th>ቀን</th>
-                                <th>እቃ</th>
+                                <th>#</th>
+                                <th>የኢትዮጵያ ቀን</th>
+                                <th>የኢትዮጵያ ሰዓት</th>
+                                <th>የእቃ ስም</th>
                                 <th>መጠን</th>
                                 <th>ምክንያት</th>
-                                <th>ሻጭ</th>
-                                <th>ሰዓት</th>
+                                <th>የላከው ሰው</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach($all_returns as $return): ?>
+                            <?php 
+                            $counter = 1;
+                            foreach($all_returns as $return): 
+                                $eth_date = getEthiopianDate($return['gregorian_date']);
+                                $eth_time = get_ethiopian_time_display($return['gregorian_date']);
+                                $qty = floatval($return['quantity']);
+                                $qty_display = ($qty == (int)$qty) ? number_format($qty, 0) : number_format($qty, 2);
+                                $sender_name = !empty($return['seller_full']) ? $return['seller_full'] : (!empty($return['seller_name']) ? $return['seller_name'] : '-');
+                            ?>
                             <tr>
-                                <td><?php echo date('M j, Y', strtotime($return['gregorian_date'])); ?></td>
+                                <td>#<?php echo $counter++; ?></td>
+                                <td><strong><?php echo $eth_date['formatted']; ?></strong></td>
+                                <td class="time-badge"><?php echo $eth_time; ?></td>
                                 <td><strong><?php echo safe_html($return['product_name']); ?></strong></td>
-                                <td><?php echo $return['quantity'] . ' ' . $return['unit']; ?></td>
+                                <td><span style="background: #eef2ff; color: #4361ee; padding: 4px 10px; border-radius: 6px; font-weight: bold;"><?php echo $qty_display . ' ' . safe_html($return['unit']); ?></span></td>
                                 <td>
                                     <?php if(!empty($return['reason'])): ?>
                                         <span class="reason-badge"><?php echo safe_html($return['reason']); ?></span>
                                     <?php else: ?>
-                                        -
+                                        <span style="color: #999;">-</span>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo safe_html($return['seller_name']); ?></td>
-                                <td class="time-badge"><?php echo date('h:i A', strtotime($return['gregorian_date'])); ?></td>
+                                <td><i class="fas fa-user" style="color: #6366f1; margin-right: 5px;"></i><strong><?php echo safe_html($sender_name); ?></strong></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -1262,14 +1359,6 @@ function format_gregorian_datetime_12hr($datetime) {
                     <p>ምንም የተመለሱ እቃዎች የሉም</p>
                 </div>
             <?php endif; ?>
-        </div>
-
-        <!-- Navigation Buttons -->
-        <div class="nav-buttons">
-            <a href="seller_pos.php" class="nav-btn"><i class="fas fa-store"></i> ወደ መሸጫ ተመለስ</a>
-            <a href="seller_receive_stock.php" class="nav-btn secondary"><i class="fas fa-truck-loading"></i> ክምችት መቀበል</a>
-            <button class="nav-btn secondary" onclick="window.print()"><i class="fas fa-print"></i> ማተም</button>
-            <button class="nav-btn secondary" onclick="logout()"><i class="fas fa-sign-out-alt"></i> ውጣ</button>
         </div>
     </div>
 

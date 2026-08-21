@@ -246,24 +246,49 @@ if (isset($_GET['ajax_load'])) {
     exit();
 }
 
-// ========== HANDLE EXCEL EXPORT ==========
+// ========== HANDLE EXCEL EXPORT (Native PhpSpreadsheet .xlsx) ==========
 if (isset($_GET['export_excel']) && $_GET['export_excel'] == '1') {
     $date_filter = isset($_GET['date_filter']) ? $_GET['date_filter'] : 'all';
-    $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : '';
-    $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : '';
     
     $where_clauses = ["sl.branch_id = $branch_id", "(sl.source != 'return' OR sl.source IS NULL)", "(sl.notes NOT LIKE '%ተመላሽ%' OR sl.notes IS NULL)"];
     
+    $date_info = "ሁሉም መረጃዎች";
     if ($date_filter == 'today') {
         $where_clauses[] = "DATE(sl.date_added) = CURDATE()";
+        $date_info = "የዛሬ";
     } elseif ($date_filter == 'yesterday') {
         $where_clauses[] = "DATE(sl.date_added) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)";
-    } elseif ($date_filter == 'last7days') {
+        $date_info = "የትናንት";
+    } elseif ($date_filter == '3days') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 3 DAY)";
+        $date_info = "ባለፉት 3 ቀናት";
+    } elseif ($date_filter == 'last7days' || $date_filter == '1week') {
         $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
-    } elseif ($date_filter == 'last30days') {
+        $date_info = "ባለፉት 1 ሳምንት (7 ቀናት)";
+    } elseif ($date_filter == '2weeks') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)";
+        $date_info = "ባለፉት 2 ሳምንታት";
+    } elseif ($date_filter == '3weeks') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 21 DAY)";
+        $date_info = "ባለፉት 3 ሳምንታት";
+    } elseif ($date_filter == 'last30days' || $date_filter == '1month') {
         $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-    } elseif ($date_filter == 'custom' && !empty($start_date) && !empty($end_date)) {
-        $where_clauses[] = "DATE(sl.date_added) BETWEEN '$start_date' AND '$end_date'";
+        $date_info = "ባለፉት 1 ወር (30 ቀናት)";
+    } elseif ($date_filter == '2months') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)";
+        $date_info = "ባለፉት 2 ወራት";
+    } elseif ($date_filter == '3months') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)";
+        $date_info = "ባለፉት 3 ወራት";
+    } elseif ($date_filter == '6months') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 180 DAY)";
+        $date_info = "ባለፉት 6 ወራት";
+    } elseif ($date_filter == '9months') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 270 DAY)";
+        $date_info = "ባለፉት 9 ወራት";
+    } elseif ($date_filter == '1year') {
+        $where_clauses[] = "DATE(sl.date_added) >= DATE_SUB(CURDATE(), INTERVAL 365 DAY)";
+        $date_info = "ባለፉት 1 ዓመት";
     }
     
     $where_sql = implode(' AND ', $where_clauses);
@@ -276,50 +301,84 @@ if (isset($_GET['export_excel']) && $_GET['export_excel'] == '1') {
     
     $export_result = mysqli_query($conn, $export_query);
     
-    if (ob_get_level()) ob_end_clean();
-    
-    header('Content-Type: application/vnd.ms-excel; charset=UTF-8');
-    header('Content-Disposition: attachment; filename="stock_receive_report_' . date('Y-m-d') . '.xlsx"');
-    header('Cache-Control: max-age=0');
-    header('Pragma: public');
-    
-    echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">';
-    echo '<style>body{font-family:"Segoe UI",Arial,sans-serif;margin:20px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #ccc;padding:8px;text-align:left;} th{background:#4361ee;color:white;}</style>';
-    echo '</head><body>';
-    echo '<h2>📦 የምርት መቀበያ ሪፖርት</h2>';
-    echo '<p>ቅርንጫፍ: ' . htmlspecialchars($branch_name) . ' | ቀን: ' . date('Y-m-d H:i:s') . '</p>';
-    echo '<table>';
-    echo '<tr><th>#</th><th>ሻጭ</th><th>እቃ</th><th>ብዛት</th><th>መለኪያ</th><th>ምንጭ</th><th>የኢትዮጵያ ቀን</th><th>ሰዓት</th><th>ማስታወሻ</th></tr>';
-    
+    if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+        require_once __DIR__ . '/vendor/autoload.php';
+    }
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('የምርት መቀበያ ሪፖርት');
+
+    $colCount = 10;
+    $widths = [8, 16, 14, 14, 18, 24, 14, 12, 16, 26];
+    foreach ($widths as $i => $w) {
+        $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+        $sheet->getColumnDimension($colLetter)->setWidth($w);
+    }
+
+    $nextRow = renderExcelBannerReal($sheet, 'የምርት መቀበያ ሪፖርት (Stock Inflow Report)', $branch_name, 'የቀን ክልል: ' . $date_info, 1, $colCount);
+
+    $headers = ['#', 'የኢትዮጵያ ቀን', 'የኢትዮጵያ ሰዓት', 'ግሪጎሪያን ሰዓት', 'ሻጭ', 'እቃ (Product)', 'ብዛት (Qty)', 'መለኪያ', 'ምንጭ', 'ማስታወሻ'];
+    foreach ($headers as $i => $label) {
+        $sheet->setCellValue([$i + 1, $nextRow], $label);
+    }
+    styleExcelHeaderRow($sheet, $nextRow, $colCount);
+    $r = $nextRow + 1;
+
+    $total_qty = 0;
+    $counter = 1;
+
     if ($export_result && mysqli_num_rows($export_result) > 0) {
-        $counter = 1;
-        while($stock = mysqli_fetch_assoc($export_result)) {
-            $eth_date = format_ethiopian_date_from_db($stock['date_added']);
-            $eth_date_display = $eth_date ? $eth_date['display'] : '';
-            $gregorian_time = format_gregorian_time_12hr($stock['date_added']);
+        while ($stock = mysqli_fetch_assoc($export_result)) {
+            $eth_date = getEthiopianDate($stock['date_added']);
+            $eth_time = get_ethiopian_time_display($stock['date_added']);
+            $greg_time = date('h:i A', strtotime($stock['date_added']));
             $seller_display = !empty($stock['seller_full_name']) ? $stock['seller_full_name'] : ($stock['seller_name'] ?? 'ሻጭ');
             
-            $source_text = $stock['source'];
+            $source_text = $stock['source'] ?? '';
             if ($stock['source'] == 'admin') $source_text = 'ከፋርም';
             elseif ($stock['source'] == 'purchase') $source_text = 'የተገዛ';
-            
-            echo '<tr>';
-            echo '<td>' . $counter++ . '</td>';
-            echo '<td>' . htmlspecialchars($seller_display) . '</td>';
-            echo '<td>' . htmlspecialchars($stock['item_name']) . '</td>';
-            echo '<td>' . number_format($stock['quantity'], 2) . '</td>';
-            echo '<td>' . htmlspecialchars($stock['unit']) . '</td>';
-            echo '<td>' . htmlspecialchars($source_text) . '</td>';
-            echo '<td>' . htmlspecialchars($eth_date_display) . '</td>';
-            echo '<td>' . htmlspecialchars($gregorian_time) . '</td>';
-            echo '<td>' . htmlspecialchars(substr($stock['notes'] ?? '', 0, 50)) . '</td>';
-            echo '</tr>';
+            elseif ($stock['source'] == 'production') $source_text = 'የተመረተ';
+
+            $qty = (float)$stock['quantity'];
+            $total_qty += $qty;
+
+            $sheet->setCellValue([1, $r], $counter++);
+            $sheet->setCellValue([2, $r], $eth_date['formatted']);
+            $sheet->setCellValue([3, $r], $eth_time);
+            $sheet->setCellValue([4, $r], $greg_time);
+            $sheet->setCellValue([5, $r], $seller_display);
+            $sheet->setCellValue([6, $r], $stock['item_name']);
+            $sheet->setCellValue([7, $r], $qty);
+            $sheet->setCellValue([8, $r], $stock['unit'] ?? 'ፍሬ');
+            $sheet->setCellValue([9, $r], $source_text);
+            $sheet->setCellValue([10, $r], substr($stock['notes'] ?? '', 0, 100));
+
+            $sheet->getStyle([7, $r])->getNumberFormat()->setFormatCode('#,##0.00');
+
+            styleExcelDataRow($sheet, $r, $colCount, ($r % 2 === 0));
+            $r++;
+        }
+
+        // Grand total row
+        $sheet->setCellValue([1, $r], 'ጠቅላላ ድምር (TOTAL)');
+        $sheet->setCellValue([7, $r], (float)$total_qty);
+
+        for ($c = 1; $c <= $colCount; $c++) {
+            $cell = $sheet->getCell([$c, $r]);
+            $cell->getStyle()->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F59E0B');
+            $cell->getStyle()->getFont()->setBold(true)->getColor()->setRGB('0F172A');
+            if ($c == 7) {
+                $cell->getStyle()->getNumberFormat()->setFormatCode('#,##0.00');
+            }
         }
     } else {
-        echo '<tr><td colspan="9" style="text-align:center;">ምንም data አልተገኘም</td></tr>';
+        $sheet->mergeCells([1, $r, $colCount, $r]);
+        $sheet->setCellValue([1, $r], 'ምንም መረጃ አልተገኘም');
+        $sheet->getStyle([1, $r])->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
     }
-    
-    echo '</table></body></html>';
+
+    downloadExcelSpreadsheet($spreadsheet, 'stock_receive_report_' . $branch_id . '_' . date('Y-m-d'));
     exit();
 }
 
@@ -1393,25 +1452,22 @@ if ($inventory_exists) {
             </div>
             <div class="export-modal-body">
                 <div class="export-date-section">
-                    <label><i class="fas fa-calendar-alt"></i> የቀን ክልል ምረጡ</label>
-                    <select id="exportDateFilter" class="export-select" onchange="toggleExportCustomDate(this.value)">
-                        <option value="all">ሁሉም መረጃዎች</option>
-                        <option value="today">ዛሬ</option>
-                        <option value="yesterday">ትናንት</option>
-                        <option value="last7days">ያለፉ 7 ቀናት</option>
-                        <option value="last30days">ያለፉ 30 ቀናት</option>
-                        <option value="custom">Custom Date</option>
+                    <label><i class="fas fa-calendar-alt"></i> የቀን ክልል ይምረጡ</label>
+                    <select id="exportDateFilter" class="export-select">
+                        <option value="all">ሁሉም መረጃዎች (All Records)</option>
+                        <option value="today">ዛሬ (Today)</option>
+                        <option value="yesterday">ትናንት (Yesterday)</option>
+                        <option value="3days">ባለፉት 3 ቀናት (Last 3 Days)</option>
+                        <option value="last7days">ባለፉት 1 ሳምንት / 7 ቀናት (Last 1 Week)</option>
+                        <option value="2weeks">ባለፉት 2 ሳምንታት (Last 2 Weeks)</option>
+                        <option value="3weeks">ባለፉት 3 ሳምንታት (Last 3 Weeks)</option>
+                        <option value="last30days">ባለፉት 1 ወር / 30 ቀናት (Last 1 Month)</option>
+                        <option value="2months">ባለፉት 2 ወራት (Last 2 Months)</option>
+                        <option value="3months">ባለፉት 3 ወራት (Last 3 Months)</option>
+                        <option value="6months">ባለፉት 6 ወራት (Last 6 Months)</option>
+                        <option value="9months">ባለፉት 9 ወራት (Last 9 Months)</option>
+                        <option value="1year">ባለፉት 1 ዓመት (Last 1 Year)</option>
                     </select>
-                </div>
-                <div id="exportCustomDateRange" class="export-custom-date" style="display: none;">
-                    <div class="export-date-group">
-                        <label>ከ (From):</label>
-                        <input type="date" id="exportStartDate" class="export-input">
-                    </div>
-                    <div class="export-date-group">
-                        <label>እስከ (To):</label>
-                        <input type="date" id="exportEndDate" class="export-input">
-                    </div>
                 </div>
             </div>
             <div class="export-modal-footer">
@@ -1675,40 +1731,16 @@ if ($inventory_exists) {
             document.getElementById('exportModal').style.display = 'none';
         }
         
-        function toggleExportCustomDate(value) {
-            const customDiv = document.getElementById('exportCustomDateRange');
-            if (value === 'custom') {
-                customDiv.style.display = 'grid';
-                const today = new Date().toISOString().split('T')[0];
-                const lastMonth = new Date();
-                lastMonth.setMonth(lastMonth.getMonth() - 1);
-                document.getElementById('exportStartDate').value = lastMonth.toISOString().split('T')[0];
-                document.getElementById('exportEndDate').value = today;
-            } else {
-                customDiv.style.display = 'none';
-            }
-        }
-        
         function exportToExcel() {
             const dateFilter = document.getElementById('exportDateFilter').value;
-            let url = 'seller_receive_stock.php?export_excel=1&date_filter=' + dateFilter;
-            
-            if (dateFilter === 'custom') {
-                const startDate = document.getElementById('exportStartDate').value;
-                const endDate = document.getElementById('exportEndDate').value;
-                if (!startDate || !endDate) {
-                    alert('እባክዎ ትክክለኛ ቀን ይምረጡ');
-                    return;
-                }
-                url += '&start_date=' + startDate + '&end_date=' + endDate;
-            }
+            let url = 'seller_receive_stock.php?export_excel=1&date_filter=' + encodeURIComponent(dateFilter);
             
             <?php if ($user_role == 'super_admin' && isset($_GET['branch_id'])): ?>
             url += '&branch_id=<?php echo $_GET['branch_id']; ?>';
             <?php endif; ?>
             
             closeExportModal();
-            window.open(url, '_blank');
+            window.location.href = url;
         }
         
         window.onclick = function(event) {

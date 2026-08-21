@@ -328,38 +328,30 @@ $where_conditions = [
     "t.branch_id = $branch_id"
 ];
 
-$bind_types  = '';
-$bind_values = [];
-
 if ($filter_seller) {
-    $where_conditions[] = "t.seller_name LIKE ?";
-    $bind_types  .= 's';
-    $bind_values[] = '%' . $filter_seller . '%';
+    $safe_seller = mysqli_real_escape_string($conn, $filter_seller);
+    $where_conditions[] = "t.seller_name LIKE '%$safe_seller%'";
 }
 if ($filter_payment) {
     // Whitelist allowed payment methods to prevent injection
     $allowed_payments = ['cash', 'cbe', 'telebirr', 'abyssinia', 'card', 'bank'];
     if (in_array(strtolower($filter_payment), $allowed_payments, true)) {
-        $where_conditions[] = "t.payment_method = ?";
-        $bind_types  .= 's';
-        $bind_values[] = $filter_payment;
+        $safe_payment = mysqli_real_escape_string($conn, $filter_payment);
+        $where_conditions[] = "t.payment_method = '$safe_payment'";
     } else {
         $filter_payment = ''; // invalid value — ignore
     }
 }
 if ($search_receipt_id > 0) {
-    $where_conditions[] = "t.id = ?";
-    $bind_types  .= 'i';
-    $bind_values[] = $search_receipt_id;
+    $where_conditions[] = "t.id = " . intval($search_receipt_id);
 }
 
 $where_clause = 'WHERE ' . implode(' AND ', $where_conditions);
 
 $item_search_condition = '';
 if ($search_item) {
-    $item_search_condition = " AND EXISTS (SELECT 1 FROM transaction_items ti WHERE ti.transaction_id = t.id AND ti.product_name LIKE ?)";
-    $bind_types  .= 's';
-    $bind_values[] = '%' . $search_item . '%';
+    $safe_item = mysqli_real_escape_string($conn, $search_item);
+    $item_search_condition = " AND EXISTS (SELECT 1 FROM transaction_items ti WHERE ti.transaction_id = t.id AND ti.product_name LIKE '%$safe_item%')";
 }
 
 // ========== Totals query ==========
