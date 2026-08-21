@@ -7,22 +7,40 @@ if (!$conn) {
     die(json_encode(['success' => false, 'message' => 'Database connection failed']));
 }
 
+// ---- Auth: must be logged in ----
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    die(json_encode(['success' => false, 'message' => 'Not authenticated']));
+}
+
 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
     die(json_encode(['success' => false, 'message' => 'Invalid transaction ID']));
 }
 
 $transaction_id = intval($_GET['id']);
+$user_role      = $_SESSION['role'] ?? '';
+$current_branch = getCurrentBranchId($conn, $_SESSION['user_id'], $user_role);
 
-// Get transaction details
-$transaction_query = "SELECT *, DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i:%s') as raw_date
-                      FROM transactions WHERE id = $transaction_id";
-$transaction_result = mysqli_query($conn, $transaction_query);
+// Get transaction details (prepared statement — was raw string interpolation)
+$transaction_stmt = mysqli_prepare($conn,
+    "SELECT *, DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i:%s') as raw_date
+     FROM transactions WHERE id = ?");
+mysqli_stmt_bind_param($transaction_stmt, "i", $transaction_id);
+mysqli_stmt_execute($transaction_stmt);
+$transaction_result = mysqli_stmt_get_result($transaction_stmt);
 
 if (!$transaction_result || mysqli_num_rows($transaction_result) == 0) {
     die(json_encode(['success' => false, 'message' => 'Transaction not found']));
 }
 
 $transaction = mysqli_fetch_assoc($transaction_result);
+mysqli_stmt_close($transaction_stmt);
+
+// ---- Auth: non-super_admins can only view their own branch's transactions ----
+if ($user_role !== 'super_admin' && (int)$transaction['branch_id'] !== (int)$current_branch) {
+    http_response_code(403);
+    die(json_encode(['success' => false, 'message' => 'Access denied']));
+}
 
 // Convert raw_date to Ethiopian date for the receipt
 function gregorian_to_ethiopian_receipt($gregorian_datetime) {
@@ -77,21 +95,24 @@ function gregorian_to_ethiopian_receipt($gregorian_datetime) {
 
 $eth_date = gregorian_to_ethiopian_receipt($transaction['raw_date']);
 
-// Get transaction items with name fallback resolution
-$items_query  = "SELECT ti.*, 
-                  COALESCE(
-                    NULLIF(NULLIF(ti.product_name, '0'), ''),
-                    NULLIF(p.name, ''),
-                    'ምርት'
-                  ) as resolved_product_name
-                 FROM transaction_items ti
-                 LEFT JOIN products p ON (ti.product_id = p.id AND p.id > 0)
-                 WHERE ti.transaction_id = $transaction_id";
-$items_result = mysqli_query($conn, $items_query);
+// Get transaction items with name fallback resolution (prepared statement — was raw string interpolation)
+$items_stmt = mysqli_prepare($conn,
+    "SELECT ti.*,
+       COALESCE(
+         NULLIF(NULLIF(ti.product_name, '0'), ''),
+         NULLIF(p.name, ''),
+         'ምርት'
+       ) as resolved_product_name
+     FROM transaction_items ti
+     LEFT JOIN products p ON (ti.product_id = p.id AND p.id > 0)
+     WHERE ti.transaction_id = ?");
+mysqli_stmt_bind_param($items_stmt, "i", $transaction_id);
+mysqli_stmt_execute($items_stmt);
+$items_result = mysqli_stmt_get_result($items_stmt);
 $items = [];
 while ($item = mysqli_fetch_assoc($items_result)) {
-    $p_name = (!empty($item['product_name']) && $item['product_name'] !== '0') 
-        ? $item['product_name'] 
+    $p_name = (!empty($item['product_name']) && $item['product_name'] !== '0')
+        ? $item['product_name']
         : (!empty($item['resolved_product_name']) ? $item['resolved_product_name'] : 'ምርት');
 
     $items[] = [
@@ -102,6 +123,7 @@ while ($item = mysqli_fetch_assoc($items_result)) {
         'subtotal'     => (float)$item['subtotal']
     ];
 }
+mysqli_stmt_close($items_stmt);
 
 echo json_encode([
     'success' => true,

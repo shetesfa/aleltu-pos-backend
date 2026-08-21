@@ -4,22 +4,42 @@ require_once 'config.php';
 
 if (!$conn) { die("Connection failed"); }
 
+// ---- Auth: must be logged in ----
+if (!isset($_SESSION['user_id'])) {
+    header("Location: index.php");
+    exit();
+}
+
 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) { die("Invalid ID"); }
 
 $transaction_id = intval($_GET['id']);
+$user_role      = $_SESSION['role'] ?? '';
+$current_branch = getCurrentBranchId($conn, $_SESSION['user_id'], $user_role);
 
-// Get transaction
-$trans_query = "SELECT *, DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i:%s') as raw_date 
-                FROM transactions WHERE id = $transaction_id";
-$trans_result = mysqli_query($conn, $trans_query);
+// Get transaction (prepared statement — was raw string interpolation)
+$trans_stmt = mysqli_prepare($conn,
+    "SELECT *, DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i:%s') as raw_date
+     FROM transactions WHERE id = ?");
+mysqli_stmt_bind_param($trans_stmt, "i", $transaction_id);
+mysqli_stmt_execute($trans_stmt);
+$trans_result = mysqli_stmt_get_result($trans_stmt);
 if (!$trans_result || mysqli_num_rows($trans_result) == 0) { die("Transaction not found"); }
 $transaction = mysqli_fetch_assoc($trans_result);
+mysqli_stmt_close($trans_stmt);
 
-// Get items
-$items_query = "SELECT * FROM transaction_items WHERE transaction_id = $transaction_id";
-$items_result = mysqli_query($conn, $items_query);
+// ---- Auth: non-super_admins can only view receipts from their own branch ----
+if ($user_role !== 'super_admin' && (int)$transaction['branch_id'] !== (int)$current_branch) {
+    die("Access denied. This receipt does not belong to your branch.");
+}
+
+// Get items (prepared statement — was raw string interpolation)
+$items_stmt = mysqli_prepare($conn, "SELECT * FROM transaction_items WHERE transaction_id = ?");
+mysqli_stmt_bind_param($items_stmt, "i", $transaction_id);
+mysqli_stmt_execute($items_stmt);
+$items_result = mysqli_stmt_get_result($items_stmt);
 $items = [];
 while ($item = mysqli_fetch_assoc($items_result)) { $items[] = $item; }
+mysqli_stmt_close($items_stmt);
 
 // Ethiopian date conversion
 function gregorian_to_ethiopian($gregorian_datetime) {
