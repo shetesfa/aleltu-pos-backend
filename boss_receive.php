@@ -13,9 +13,15 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+$user_role = $_SESSION['role'] ?? '';
+// Only super_admin, admin, and boss are allowed
+if (!in_array($user_role, ['super_admin', 'admin', 'boss'], true)) {
+    header("Location: seller_pos.php");
+    exit();
+}
+
 $user_id = $_SESSION['user_id'];
 $user_name = $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'User';
-$user_role = $_SESSION['role'] ?? '';
 
 // Get branch info
 $user_branch = getUserBranch($conn, $user_id);

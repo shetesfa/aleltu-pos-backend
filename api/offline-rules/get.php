@@ -12,9 +12,17 @@ header('Content-Type: application/json; charset=utf-8');
 
 api_require_auth();
 
-$branch_id = (int)($_GET['branch_id'] ?? ($GLOBALS['api_user']['branch_id'] ?? 0));
+$user_role = $GLOBALS['api_user']['role'] ?? 'seller';
+$user_id   = (int)($GLOBALS['api_user']['user_id'] ?? 0);
+$branch_id = (int)($GLOBALS['api_user']['branch_id'] ?? 0);
+
 if ($branch_id <= 0) {
-    $branch_id = (int)getCurrentBranchId($conn, $GLOBALS['api_user']['user_id'], $GLOBALS['api_user']['role']);
+    $branch_id = (int)getCurrentBranchId($conn, $user_id, $user_role);
+}
+
+// Only admin, super_admin, or boss can request a specific branch
+if (isset($_GET['branch_id']) && (int)$_GET['branch_id'] > 0 && in_array($user_role, ['admin', 'super_admin', 'boss'], true)) {
+    $branch_id = (int)$_GET['branch_id'];
 }
 
 $stmt = mysqli_prepare($conn,
