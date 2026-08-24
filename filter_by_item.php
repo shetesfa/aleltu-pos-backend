@@ -2,6 +2,12 @@
 // filter_by_item.php - Filter by Item (Admin Only)
 require_once 'config.php';
 
+// Must be logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: index.php");
+    exit();
+}
+
 // Only admin and super_admin allowed
 if($_SESSION['role'] == 'seller') {
     header("Location: seller_pos.php");
@@ -41,10 +47,12 @@ if (!empty($item_name)) {
 // filter cannot be applied at the database level. $location_filter is kept
 // only so the dropdown on the page still remembers what was selected.
 if(!empty($date_from)) {
-    $where .= " AND DATE(t.transaction_date) >= '$date_from'";
+    $safe_date_from = mysqli_real_escape_string($conn, $date_from);
+    $where .= " AND DATE(t.transaction_date) >= '$safe_date_from'";
 }
 if(!empty($date_to)) {
-    $where .= " AND DATE(t.transaction_date) <= '$date_to'";
+    $safe_date_to = mysqli_real_escape_string($conn, $date_to);
+    $where .= " AND DATE(t.transaction_date) <= '$safe_date_to'";
 }
 
 // Get item sales data
@@ -315,7 +323,7 @@ $summary = mysqli_fetch_assoc($summary_result);
                 <input type="text" name="item" list="items-list" value="<?php echo htmlspecialchars($item_name); ?>" placeholder="Enter item name">
                 <datalist id="items-list">
                     <?php while($item = mysqli_fetch_assoc($items_result)): ?>
-                        <option value="<?php echo $item['product_name']; ?>">
+                        <option value="<?php echo htmlspecialchars($item['product_name']); ?>">
                     <?php endwhile; ?>
                 </datalist>
             </div>
@@ -403,7 +411,7 @@ $summary = mysqli_fetch_assoc($summary_result);
                         $percentage = $max_amount > 0 ? ($row['total_amount'] / $max_amount) * 100 : 0;
                     ?>
                     <tr>
-                        <td class="item-name"><?php echo $row['product_name']; ?></td>
+                        <td class="item-name"><?php echo htmlspecialchars($row['product_name']); ?></td>
                         <td><?php echo $row['location_name']; ?></td>
                         <td><strong><?php echo $row['total_quantity']; ?></strong> units</td>
                         <td style="font-weight:bold;color:#27ae60;"><?php echo number_format($row['total_amount'], 2); ?> ETB</td>

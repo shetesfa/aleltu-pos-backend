@@ -14,6 +14,12 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// Only admin and super_admin may manage users — sellers must not reach this page.
+if (($_SESSION['role'] ?? '') !== 'admin' && ($_SESSION['role'] ?? '') !== 'super_admin') {
+    header("Location: seller_pos.php");
+    exit();
+}
+
 $current_user_id   = $_SESSION['user_id'];
 $current_user_role = $_SESSION['role'] ?? '';
 $current_username  = $_SESSION['username'] ?? '';

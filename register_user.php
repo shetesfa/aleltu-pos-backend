@@ -35,7 +35,11 @@ if (!validateCsrfToken($_POST['csrf_token'] ?? null)) {
     }
     $username        = trim($_POST['username'] ?? '');
     $full_name       = trim($_POST['full_name'] ?? '');
-    $allowed_roles   = ['admin', 'manager', 'cashier', 'seller', 'boss', 'super_admin'];
+    // Only a super_admin may create another super_admin account.
+    // A regular admin can create any role EXCEPT super_admin.
+    $allowed_roles   = ($user_role === 'super_admin')
+        ? ['admin', 'manager', 'cashier', 'seller', 'boss', 'super_admin']
+        : ['admin', 'manager', 'cashier', 'seller', 'boss'];
     $role            = in_array($_POST['role'] ?? '', $allowed_roles, true) ? $_POST['role'] : 'seller';
     
     // Determine which branch to assign

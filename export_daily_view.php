@@ -19,7 +19,13 @@ $user_role = $_SESSION['role'] ?? 'seller';
 // Branches for super admin
 $all_branches = ($user_role === 'super_admin') ? getAllBranches($conn) : [];
 
-$branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : getCurrentBranchId($conn, $user_id, $user_role);
+// Branch always comes from the logged-in user's own branch. Only a
+// super_admin may pick a different branch via ?branch_id=; everyone else
+// gets their own branch regardless of what's in the URL.
+$branch_id = getCurrentBranchId($conn, $user_id, $user_role);
+if ($user_role === 'super_admin' && isset($_GET['branch_id']) && (int)$_GET['branch_id'] > 0) {
+    $branch_id = (int)$_GET['branch_id'];
+}
 if ($branch_id <= 0 && !empty($all_branches)) {
     $branch_id = (int)$all_branches[0]['id'];
 }

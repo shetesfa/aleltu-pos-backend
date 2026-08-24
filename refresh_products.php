@@ -9,10 +9,21 @@ if (!$conn) {
     exit();
 }
 
-$branch_id = isset($_GET['branch_id']) ? intval($_GET['branch_id']) : 0;
+// ---- Auth: must be logged in ----
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Not authenticated']);
+    exit();
+}
 
-if ($branch_id <= 0 && isset($_SESSION['user_id'])) {
-    $branch_id = getCurrentBranchId($conn, $_SESSION['user_id'], $_SESSION['role'] ?? 'seller');
+$user_role = $_SESSION['role'] ?? 'seller';
+
+// Branch always comes from the logged-in user's own branch.
+// A super_admin may pass ?branch_id= to look at a specific branch;
+// everyone else always gets their own branch regardless of what's in the URL.
+$branch_id = getCurrentBranchId($conn, $_SESSION['user_id'], $user_role);
+if ($user_role === 'super_admin' && isset($_GET['branch_id']) && intval($_GET['branch_id']) > 0) {
+    $branch_id = intval($_GET['branch_id']);
 }
 
 if ($branch_id <= 0) {

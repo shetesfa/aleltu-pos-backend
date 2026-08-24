@@ -13,8 +13,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
 
     $start_date = mysqli_real_escape_string($conn, $_POST['start_date'] ?? date('Y-m-d'));
     $end_date = mysqli_real_escape_string($conn, $_POST['end_date'] ?? date('Y-m-d'));
-    $branch_id = intval($_POST['branch_id'] ?? 0);
-    $branch_name = $_POST['branch_name'] ?? 'Branch';
+
+    // Branch always comes from the logged-in user's own branch. Only a
+    // super_admin may export a different branch's report; everyone else
+    // gets their own branch regardless of what was submitted in the form.
+    $current_user_role = $_SESSION['role'] ?? '';
+    $branch_id = getCurrentBranchId($conn, $_SESSION['user_id'], $current_user_role);
+    if ($current_user_role === 'super_admin' && isset($_POST['branch_id']) && (int)$_POST['branch_id'] > 0) {
+        $branch_id = (int)$_POST['branch_id'];
+    }
+    $branch_name = getCurrentBranchName($conn, $branch_id);
 
     // Get withdrawals for the date range
     $query = "SELECT dw.*, u.username as user_username 
